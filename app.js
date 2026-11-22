@@ -54,6 +54,7 @@
     add({ id: 'config', type: 'config', updatedAt: 0, businessName: 'Widemp Atelier', cats: DEFAULT_CATS });
     add({ id: 'acc-bank', type: 'account', updatedAt: 0, name: 'Rekening bank', scope: 'usaha', opening: 0 });
     add({ id: 'acc-cash', type: 'account', updatedAt: 0, name: 'Kas tunai', scope: 'usaha', opening: 0 });
+    if (window.Studio) window.Studio.SEEDS().forEach(add);
     if (seeds.length) await idbPut(seeds);
   }
   const DEFAULT_BIZ = {
@@ -83,7 +84,8 @@
   function render() {
     $('#biz').textContent = (cfg().businessName || 'Widemp Atelier').toUpperCase();
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === ui.tab));
-    const fn = { dash: vDash, proj: ui.pid ? vProjectDetail : vProjects, cash: vCash, doc: vDocs, set: vSettings }[ui.tab];
+    const ST = window.Studio;
+    const fn = { dash: vDash, proj: ui.pid ? vProjectDetail : vProjects, cash: vCash, doc: vDocs, set: vSettings, quote: ST ? ST.vQuotes : vDash, data: ST ? ST.vData : vSettings }[ui.tab] || vDash;
     const keepScroll = window.scrollY;
     view.innerHTML = fn();
     window.scrollTo(0, keepScroll);
@@ -270,6 +272,7 @@
     <div class="actions" style="margin-top:0"><button class="btn sm" data-act="back">← Proyek</button><button class="btn sm" data-act="edit-project" data-id="${p.id}">Ubah</button></div>
     <h2 style="margin-top:0">${esc(p.name)} <span class="badge">${esc(p.status)}</span></h2>
     <div class="muted" style="margin-bottom:10px">${esc(p.client || 'Tanpa klien')}${p.service ? ' · ' + esc(p.service) : ''}${p.note ? ' · ' + esc(p.note) : ''}</div>
+    ${window.Studio ? window.Studio.projectLinks(p) : ''}
     <div class="card"><div class="row" style="padding:0;border:0"><div class="grow"><div class="s">Progres pekerjaan</div><div class="bar" style="height:8px"><i style="width:${Number(p.progress) || 0}%"></i></div></div><div class="amt">${Number(p.progress) || 0}%</div></div></div>
     <div class="grid g4">
       <div class="stat"><div class="l">Nilai kontrak</div><div class="v">${rp(s.contract)}</div></div>
@@ -344,6 +347,7 @@
       <div class="s muted" style="margin-top:6px">Contoh nomor: ${esc(C.docNumber(c.invPrefix, 1, C.isoDate()))} · ${esc(C.docNumber(c.kwPrefix, 1, C.isoDate()))}</div>
       <label>Catatan bawaan invoice</label><textarea id="bNotes" rows="3">${esc(c.invNotes)}</textarea>
       <div class="actions"><button class="btn sm primary" data-act="save-docset">Simpan</button></div></div>
+    ${window.Studio ? window.Studio.settingsCard() : ''}
     <h2>Akun kas</h2><div class="card">${accs.map((a) => `
       <div class="row click" data-act="edit-account" data-id="${a.id}"><div class="grow"><div class="t">${esc(a.name)}${scopeBadge(a)}</div><div class="s">Saldo awal ${rp(a.opening)}</div></div><div class="amt">${rp(a.balance)}</div></div>`).join('')}
       <div class="actions"><button class="btn sm" data-act="new-account">+ Tambah akun</button></div></div>
@@ -362,7 +366,7 @@
     <h2>Cadangan</h2><div class="card">
       <div class="s muted">Salinan data dalam satu file JSON. Impor menggabungkan, tidak menghapus data yang ada.</div>
       <div class="actions"><button class="btn" data-act="export">Ekspor JSON</button><label class="btn" style="margin:0;color:var(--ink)">Impor JSON<input type="file" id="fImport" accept="application/json,.json" hidden></label></div></div>
-    <div class="muted" style="font-size:12px;margin-top:6px">Widemp Keuangan · tahap 1 (proyek, termin, kas, ringkasan, sinkron)</div>`;
+    <div class="muted" style="font-size:12px;margin-top:6px">Widemp Atelier · tahap 3 (keuangan, invoice &amp; kwitansi, penawaran, RAB, database)</div>`;
   }
 
   /* ---------------- Form ---------------- */
@@ -507,6 +511,9 @@
       } else if (kind === 'account') {
         const old = id ? byId(id) : null;
         await save('account', Object.assign({}, old, { id, name: d.name.trim(), scope: d.scope, opening: C.parseNum(d.opening) }));
+      } else if (window.Studio) {
+        const r = await window.Studio.submit(kind, f, d, id);
+        if (r !== 'done') return;
       }
       closeSheet(); render(); toast('Tersimpan');
     } catch (err) { console.error(err); toast('Gagal menyimpan: ' + err.message); }
@@ -518,14 +525,14 @@
   /* ---------------- Klik & input ---------------- */
   document.addEventListener('click', async (e) => {
     const tab = e.target.closest('#tabs button');
-    if (tab) { ui.tab = tab.dataset.tab; ui.pid = null; render(); window.scrollTo(0, 0); return; }
+    if (tab) { ui.tab = tab.dataset.tab; ui.pid = null; ui.qid = null; ui.rid = null; render(); window.scrollTo(0, 0); return; }
     const el = e.target.closest('[data-act]'); if (!el) return;
     const a = el.dataset.act, id = el.dataset.id;
     switch (a) {
       case 'close': closeSheet(); break;
-      case 'go-dash': e.preventDefault(); ui.tab = 'dash'; ui.pid = null; render(); window.scrollTo(0, 0); break;
+      case 'go-dash': e.preventDefault(); ui.tab = 'dash'; ui.pid = null; ui.qid = null; ui.rid = null; render(); window.scrollTo(0, 0); break;
       case 'go-cash': ui.tab = 'cash'; ui.pid = null; ui.month = ''; ui.kind = ''; render(); window.scrollTo(0, 0); break;
-      case 'open-project': ui.tab = 'proj'; ui.pid = id; history.pushState({ pid: id }, ''); render(); window.scrollTo(0, 0); break;
+      case 'open-project': closeSheet(); ui.tab = 'proj'; ui.qid = null; ui.rid = null; ui.pid = id; history.pushState({ pid: id }, ''); render(); window.scrollTo(0, 0); break;
       case 'back': history.back(); break;
       case 'new-project': projectForm(null); break;
       case 'edit-project': projectForm(byId(id)); break;
@@ -575,6 +582,7 @@
       case 'drive-connect': driveConnect(); break;
       case 'drive-off': DS.disconnect(); render(); toast('Terputus dari Drive (data lokal tetap ada)'); break;
       case 'export': exportJson(); break;
+      default: if (window.Studio) await window.Studio.click(a, el, e);
     }
   });
   document.addEventListener('input', (e) => {
@@ -582,10 +590,12 @@
     if (t.classList.contains('money')) t.value = fmtMoneyInput(t.value);
     if (t.matches('.termrow [name=percent]')) updTermSum();
     if (t.closest('form[data-form=invoice]')) updInvTotal();
+    if (window.Studio) window.Studio.input(e);
     if (t.id === 'fQ') { ui.q = t.value; clearTimeout(render._t); render._t = setTimeout(() => { render(); const q = $('#fQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 250); }
   });
   document.addEventListener('change', (e) => {
     const t = e.target;
+    if (window.Studio && window.Studio.change(e)) return;
     if (t.id === 'fPeriod') { ui.period = t.value; try { localStorage.setItem('wk_period', t.value); } catch (err) { /* abaikan */ } render(); }
     else if (t.id === 'fMonth') { ui.month = t.value; render(); }
     else if (t.id === 'fKind') { ui.kind = t.value; render(); }
@@ -600,7 +610,7 @@
     else if (t.name === 'projectId' && t.form) { t.form.dataset.term = ''; refreshTx(t.form); }
     else if (t.name === 'liabilityId' && t.form) { const l = byId(t.value); if (l) { t.form.dataset.cat = l.category || ''; refreshTx(t.form); if (!C.parseNum(t.form.amount.value) && l.monthly) t.form.amount.value = fmtMoneyInput(l.monthly); } }
   });
-  window.addEventListener('popstate', (e) => { ui.pid = (e.state && e.state.pid) || null; closeSheet(); render(); });
+  window.addEventListener('popstate', (e) => { const st = e.state || {}; ui.pid = st.pid || null; ui.qid = st.qid || null; ui.rid = st.rid || null; closeSheet(); render(); });
 
   /* ---------------- Invoice & kwitansi ---------------- */
   const termInvoice = (termId) => of('invoice').find((i) => i.termId === termId);
@@ -823,7 +833,7 @@
       console.warn('sync', err);
       syncState = { kind: 'err', text: /login|Izin/i.test(err.message) ? 'Ketuk untuk sinkron' : 'Gagal sinkron' };
       if (interactive) toast(err.message);
-    } finally { syncing = false; paintSync(); if (ui.tab === 'set') render(); }
+    } finally { syncing = false; paintSync(); if (ui.tab === 'set' || (ui.tab === 'data' && ui.dataSeg === 'set')) render(); }
   }
   function queueSync() { if (!DS.isConnected()) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => runSync(false), 2500); }
   async function driveConnect() {
@@ -835,9 +845,12 @@
       await runSync(true);
     } catch (err) { toast(err.message); }
   }
-  $('#syncPill').addEventListener('click', () => { if (!DS.isConnected()) { ui.tab = 'set'; ui.pid = null; render(); } else runSync(true); });
+  $('#syncPill').addEventListener('click', () => { if (!DS.isConnected()) { ui.tab = 'data'; ui.dataSeg = 'set'; ui.pid = null; ui.qid = null; ui.rid = null; render(); } else runSync(true); });
   window.addEventListener('online', () => runSync(false));
   document.addEventListener('visibilitychange', () => { if (!document.hidden && DS.isConnected() && Date.now() - DS.lastSync() > 60000) runSync(false); });
+
+  /* ---------------- API untuk modul Studio (penawaran, RAB, database) ---------------- */
+  if (window.Studio) window.Studio.init({ R, ui, of, byId, save, del, cfg, bizInfo, openSheet, closeSheet, toast, render, esc, fmtDate, opt, head, foot, fmtMoneyInput, PDFF, DS, vSettings });
 
   /* ---------------- Mulai ---------------- */
   (async function init() {

@@ -1,7 +1,7 @@
 {
-  "name": "Widemp Keuangan",
+  "name": "Widemp Atelier",
   "short_name": "Widemp",
-  "description": "Pencatatan keuangan proyek Widemp Atelier",
+  "description": "Keuangan, penawaran, RAB, dan database Widemp Atelier",
   "lang": "id",
   "start_url": "./index.html",
   "scope": "./",

@@ -42,7 +42,7 @@
 
   /* ---------- dokumen ---------- */
   class Doc {
-    constructor() { this.pages = []; this.addPage(); }
+    constructor(size) { this.pw = (size && size.w) || PW; this.ph = (size && size.h) || PH; this.pages = []; this.addPage(); }
     addPage() { this.ops = []; this.pages.push(this.ops); }
     // koordinat: y dihitung dari atas halaman
     text(str, x, y, o = {}) {
@@ -51,7 +51,7 @@
       if (o.upper) s = s.toUpperCase();
       const w = width(s, font, size, sp);
       if (o.align === 'right') x -= w; else if (o.align === 'center') x -= w / 2;
-      this.ops.push(`BT /F${font} ${size} Tf ${f2(sp)} Tc ${rgb(o.color || COL.text)} rg ${f2(x)} ${f2(PH - y)} Td ${pdfStr(s)} Tj ET`);
+      this.ops.push(`BT /F${font} ${size} Tf ${f2(sp)} Tc ${rgb(o.color || COL.text)} rg ${f2(x)} ${f2(this.ph - y)} Td ${pdfStr(s)} Tj ET`);
       return w;
     }
     lines(str, x, y, maxW, o = {}) {
@@ -61,17 +61,17 @@
       return ls.length * lh;
     }
     rect(x, y, w, h, fill, stroke, lw = 0.6) {
-      let op = `${f2(x)} ${f2(PH - y - h)} ${f2(w)} ${f2(h)} re`;
+      let op = `${f2(x)} ${f2(this.ph - y - h)} ${f2(w)} ${f2(h)} re`;
       if (fill) op = `${rgb(fill)} rg ` + op;
       if (stroke) op = `${rgb(stroke)} RG ${lw} w ` + op;
       this.ops.push('q ' + op + (fill && stroke ? ' B' : fill ? ' f' : ' S') + ' Q');
     }
     line(x1, y1, x2, y2, color = COL.line, lw = 0.6, dash) {
-      this.ops.push(`q ${rgb(color)} RG ${lw} w ${dash ? '[' + dash + '] 0 d ' : ''}${f2(x1)} ${f2(PH - y1)} m ${f2(x2)} ${f2(PH - y2)} l S Q`);
+      this.ops.push(`q ${rgb(color)} RG ${lw} w ${dash ? '[' + dash + '] 0 d ' : ''}${f2(x1)} ${f2(this.ph - y1)} m ${f2(x2)} ${f2(this.ph - y2)} l S Q`);
     }
     logo(x, y, w) {
       const h = w * A.logo.h / A.logo.w;
-      this.ops.push(`q ${f2(w)} 0 0 ${f2(h)} ${f2(x)} ${f2(PH - y - h)} cm /Logo Do Q`);
+      this.ops.push(`q ${f2(w)} 0 0 ${f2(h)} ${f2(x)} ${f2(this.ph - y - h)} cm /Logo Do Q`);
       this.usesLogo = true;
       return h;
     }
@@ -100,7 +100,7 @@
       for (const ops of this.pages) {
         const pn = n, cn = n + 1; n += 2; kids.push(pn);
         obj(cn, stream('', latin1(ops.join('\n'))));
-        obj(pn, [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources ${res} /Contents ${cn} 0 R >>`]);
+        obj(pn, [`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f2(this.pw)} ${f2(this.ph)}] /Resources ${res} /Contents ${cn} 0 R >>`]);
       }
       obj(1, ['<< /Type /Catalog /Pages 2 0 R >>']);
       obj(2, [`<< /Type /Pages /Kids [${kids.map((k) => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`]);
@@ -269,5 +269,5 @@
     return d.build(r.number);
   }
 
-  self.WidempPDF = { invoice, receipt, wrap, width };
+  self.WidempPDF = { invoice, receipt, wrap, width, Doc, COL, label, PW, PH };
 })();

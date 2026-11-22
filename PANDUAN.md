@@ -88,3 +88,32 @@ Untuk memasang versi baru, unggah file baru ke repository GitHub (timpa file lam
 - Di layar dokumen: **Unduh PDF**, **Bagikan** (langsung ke WhatsApp dari HP), atau **Simpan ke Drive** (masuk ke folder `Widemp Atelier/Invoice` atau `/Kwitansi`).
 - Nomor dibuat berurutan per tahun. Jika dua perangkat membuat dokumen saat offline, nomornya bisa sama; aplikasi memperingatkan, dan nomor bisa diubah manual.
 - Kwitansi ≥ Rp5.000.000 otomatis diberi kotak tempat meterai.
+
+## Penawaran, RAB & Database (tahap 3)
+
+Cara memasang sama seperti tahap 2: unggah **seluruh isi** zip ke repository (timpa file lama), lalu buka aplikasi dua kali. Data lama tidak berubah.
+
+Menu bawah sekarang: **Ringkasan · Proyek · Penawaran · Invoice · Kas · Data**. Pengaturan pindah ke **Data → Pengaturan**.
+
+### Isi dulu sekali
+1. **Data → Pengaturan → Penawaran & RAB**: penanda tangan, jabatan, alamat kantor, Instagram, awalan nomor (bawaan `QTN/WA`), overhead dan profit RAB bawaan.
+2. **Data → Harga**: isi harga material, upah, dan alat wilayah Anda. Cara cepat: di Excel susun kolom *nama · satuan · harga* (kolom ke-4 jenis, opsional), salin, lalu **Tempel dari Excel**. Nama yang sudah ada diperbarui harganya.
+3. **Data → Analisa**: koefisien AHSP PUPR untuk pekerjaan umum sudah tersedia. Analisa bertanda *sendiri* (bata ringan, atap baja ringan, plafon, listrik, kitchen set, lemari, backdrop) adalah perkiraan awal. Cek dan sesuaikan koefisiennya. Ketuk **Duplikat** untuk membuat variasi.
+
+### Menyusun RAB
+**Penawaran → RAB / BOQ → +**, isi nama proyek dan klien. Untuk tiap item: pilih analisa, isi volume (boleh rumus, mis. `2*0,8*12,5`), lalu simpan. Formulir langsung terbuka lagi untuk item berikutnya. Item tanpa analisa (mis. kusen aluminium borongan) cukup diisi uraian, satuan, volume, dan harga.
+- **Rekap divisi** dan **Material & upah** menampilkan total per divisi dan daftar belanja.
+- **Unduh PDF**: format RAB/BOQ Widemp (A4 mendatar). Lampiran analisa harga satuan dan rekap kebutuhan material bisa ditambahkan.
+- Jika harga di database berubah, muncul tombol **Perbarui harga**.
+- **Duplikat / versi baru** membuat V2.0, V3.0, dan seterusnya.
+
+### Membuat penawaran
+Ada lima jenis: Jasa Desain, Design & Build, Cost & Fee, Pengawasan, dan Produksi Interior. Tiga yang pertama mengikuti dokumen Anda. Pengawasan dan Produksi Interior memakai gaya yang sama, tetapi S&K-nya baru; mohon dibaca sekali.
+- Dari RAB: buka RAB → **Buat penawaran**. Design & Build mengambil total per divisi (sudah termasuk overhead & profit). Cost & Fee mengambil total material, upah, alat, dan subkon. Produksi Interior mengambil tiap item.
+- Luas area mengisi otomatis item ber-satuan m² dan baris "Setara ± Rp …/m²".
+- Lingkup dan S&K bisa diubah per penawaran. Isian seperti waktu pelaksanaan dan masa pemeliharaan otomatis masuk ke teks.
+- Status: Draf → Dikirim → **Disetujui → buat proyek**. Proyek, nilai kontrak, dan termin langsung muncul di tab Proyek, siap dibuatkan invoice. Untuk Cost & Fee, nilai kontrak proyek = fee jasa saja.
+- **Simpan ke Drive** menaruh PDF di folder `Widemp Atelier/Penawaran` dan `/RAB`.
+
+### Klien
+**Data → Klien** terisi otomatis setiap Anda membuat penawaran atau RAB. Tombol **Ambil klien dari proyek yang ada** mengisi dari proyek lama.
