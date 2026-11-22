@@ -65,8 +65,9 @@
     const totalPct = sorted.reduce((s, t) => s + (Number(t.percent) || 0), 0);
     let acc = 0;
     return sorted.map((t, i) => {
-      let amount = Math.round((contract * (Number(t.percent) || 0)) / 100);
-      if (i === sorted.length - 1 && Math.abs(totalPct - 100) < 0.001) amount = contract - acc;
+      const fixed = t.fixed != null && t.fixed !== '' ? Math.round(Number(t.fixed)) : null;
+      let amount = fixed != null ? fixed : Math.round((contract * (Number(t.percent) || 0)) / 100);
+      if (fixed == null && i === sorted.length - 1 && Math.abs(totalPct - 100) < 0.01) amount = contract - acc;
       acc += amount;
       return Object.assign({}, t, { amount });
     });
@@ -110,7 +111,7 @@
     });
   }
   function usahaTxs(accounts, txs) {
-    const ok = new Set(accounts.filter((a) => !a.deleted && a.scope !== 'pribadi').map((a) => a.id));
+    const ok = new Set(accounts.filter((a) => !a.deleted && (a.scope || 'usaha') === 'usaha').map((a) => a.id));
     return txs.filter((t) => !t.deleted && ok.has(t.accountId));
   }
   function monthTotals(accounts, txs, key) {
@@ -201,7 +202,7 @@
   }
   // saldo kas usaha sampai akhir tanggal (inklusif)
   function balanceAt(accounts, txs, iso) {
-    const accs = accounts.filter((a) => !a.deleted && a.scope !== 'pribadi');
+    const accs = accounts.filter((a) => !a.deleted && (a.scope || 'usaha') === 'usaha');
     const opening = accs.reduce((s, a) => s + (Number(a.opening) || 0), 0);
     const u = usahaTxs(accounts, txs).filter((t) => t.date <= iso);
     return opening + sumTx(u, (t) => t.kind === 'in') - sumTx(u, (t) => t.kind === 'out');

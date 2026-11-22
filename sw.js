@@ -1,5 +1,5 @@
 /* Service worker: aplikasi tetap terbuka tanpa internet */
-const CACHE = 'widemp-v3';
+const CACHE = 'widemp-v4';
 const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'sync.js', 'pdf-assets.js', 'pdf.js', 'app.js', 'assets/montserrat-R.ttf', 'assets/montserrat-M.ttf', 'assets/montserrat-B.ttf', 'assets/montserrat-I.ttf', 'assets/logo-mark.png', 'assets/logo.png', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
