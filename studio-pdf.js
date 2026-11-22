@@ -224,7 +224,16 @@
     header(); thead();
     let no = 0;
     for (const g of T.divs) {
-      for (const it of g.items) {
+      for (const rm of g.rooms) {
+      if (rm.name) {
+        room(18 + 26, thead);
+        d.rect(X0, y, X1 - X0, 17, COL.cream); d.line(X0, y + 17, X1, y + 17, COL.tan, 0.6);
+        d.text(g.name, C.div, y + 11.5, { size: 7.5, color: COL.tan });
+        d.text(rm.name.toUpperCase(), C.desc, y + 11.5, { font: 'B', size: 7.8, color: COL.dark, spacing: 0.2 });
+        d.text(rp(rm.total), C.total, y + 11.5, { font: 'B', size: 7.8, color: COL.dark, align: 'right' });
+        y += 18;
+      }
+      for (const it of rm.items) {
         no++;
         const dl = wrap(it.desc || '', 'R', 7.8, C.unit - C.desc - 10).concat(it.spec ? wrap(it.spec, 'I', 7, C.unit - C.desc - 10) : []);
         const divl = wrap(g.name, 'R', 7.5, C.desc - C.div - 6), rl = wrap(it.remark || '', 'R', 7, X1 - C.rem - 4);
@@ -239,6 +248,7 @@
         d.text(rp(it.price), C.price, ry, { size: 7.8, align: 'right' }); d.text(rp(it.total), C.total, ry, { size: 7.8, align: 'right' });
         rl.forEach((l, k) => d.text(l, C.rem, ry + k * 10, { size: 7, color: COL.gray }));
         y += h; d.line(X0, y, X1, y, COL.line, 0.5);
+      }
       }
     }
     if (!no) { d.text('Belum ada item.', X0 + 10, y + 14, { size: 8, color: COL.gray }); y += 24; }
@@ -276,6 +286,11 @@
       d.text(rp(g.total), SC.tot, y + 12, { size: 8, align: 'right' }); d.text(nf(Math.round(g.pct * 100) / 100) + '%', SC.pct, y + 12, { size: 8, align: 'right' });
       d.rect(SC.pct + 14, y + 6, 100 * g.pct / 100, 6, COL.tan);
       y += 18;
+      g.rooms.filter((rm) => rm.name).forEach((rm) => {
+        room(15, sh);
+        d.text('· ' + rm.name, SC.div + 14, y + 10, { size: 7.5, color: COL.gray }); d.text(rp(rm.total), SC.tot, y + 10, { size: 7.5, color: COL.gray, align: 'right' });
+        y += 15;
+      });
     });
     d.rect(X0, y + 2, X1 - X0, 20, COL.dark);
     d.text('TOTAL BOQ', SC.div, y + 15, { font: 'B', size: 8, color: COL.white }); d.text(rp(T.subtotal), SC.tot, y + 15, { font: 'B', size: 8, color: COL.white, align: 'right' }); d.text('100%', SC.pct, y + 15, { font: 'B', size: 8, color: COL.white, align: 'right' });

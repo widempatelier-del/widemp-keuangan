@@ -869,7 +869,13 @@
       return;
     }
     render();
-    if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      const hadSW = !!navigator.serviceWorker.controller; let reloading = false;
+      // versi baru terpasang -> muat ulang sekali supaya menu & fitur baru langsung tampil
+      navigator.serviceWorker.addEventListener('controllerchange', () => { if (!hadSW || reloading) return; reloading = true; location.reload(); });
+      navigator.serviceWorker.register('sw.js').then((reg) => reg.update()).catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {}); });
+    }
     if (DS.isConnected()) setTimeout(() => runSync(false), 600);
     window.__app = { R, ui, render, runSync };
   })();

@@ -110,7 +110,18 @@
       g.total += it.total; g.items.push(it);
     }
     divs.sort((a, b) => order(a.name) - order(b.name));
-    divs.forEach((g) => { g.pct = subtotal ? g.total / subtotal * 100 : 0; });
+    divs.forEach((g) => {
+      g.pct = subtotal ? g.total / subtotal * 100 : 0;
+      // sub bab per ruangan (urutan sesuai kemunculan pertama); item tanpa ruangan di atas
+      const rooms = [];
+      for (const it of g.items) {
+        const n = String(it.room || '').trim();
+        let rm = rooms.find((x) => x.name.toLowerCase() === n.toLowerCase());
+        if (!rm) { rm = { name: n, total: 0, items: [] }; if (n) rooms.push(rm); else rooms.unshift(rm); }
+        rm.total += it.total; rm.items.push(it);
+      }
+      g.rooms = rooms; g.items = rooms.flatMap((x) => x.items); g.hasRooms = rooms.some((x) => x.name);
+    });
     return { items, subtotal, overhead, profit, tax, grand, divs, markup: subtotal ? (overhead + profit) / subtotal : 0 };
   }
   const order = (d) => { const i = DIVISIONS.indexOf(d); return i < 0 ? 99 : i; };
@@ -401,13 +412,20 @@ b. Penawaran yang telah ditandatangani Klien menjadi dasar kesepakatan kerja. Ko
     if (tpl === 'db') {
       const ar = T.divs.filter((d) => !isInt(d.name)), inn = T.divs.filter((d) => isInt(d.name));
       q.sections[1].items = ar.map((d) => it('Pekerjaan ' + d.name.replace(/^Pekerjaan /, ''), d.items.slice(0, 4).map((x) => x.desc).join(', ') + (d.items.length > 4 ? ', dll.' : '.'), 1, 'ls', { price: r0(d.total * mk) }));
-      q.sections[2].items = inn.length ? inn.map((d) => it(d.name === 'Furniture' ? 'Furnitur Custom / Built-in' : 'Pekerjaan Interior', d.items.slice(0, 4).map((x) => x.desc).join(', ') + '.', 1, 'ls', { price: r0(d.total * mk) })) : q.sections[2].items;
+      const intLines = inn.flatMap((d) => d.rooms.map((rm) => it((d.name === 'Furniture' ? 'Furnitur' : 'Interior') + (rm.name ? ' ' + rm.name : (d.name === 'Furniture' ? ' Custom / Built-in' : '')), rm.items.slice(0, 4).map((x) => x.desc).join(', ') + (rm.items.length > 4 ? ', dll.' : '.'), 1, 'ls', { price: r0(rm.total * mk) })));
+      q.sections[2].items = intLines.length ? intLines : q.sections[2].items;
       fixRounding(q.sections.slice(1, 3), r0(T.subtotal + T.overhead + T.profit));
     } else if (tpl === 'cf') {
       const R = rabResources(rab);
       q.sections[1].items.forEach((x) => { if (x.res) x.price = R.by[x.res] || 0; });
     } else if (tpl === 'pi') {
-      q.sections[0].items = T.items.map((x) => it(x.desc, x.spec || '', num(x.qty), x.unit, { price: r0(num(x.price) * mk) }));
+      const line = (x) => it(x.desc, x.spec || '', num(x.qty), x.unit, { price: r0(num(x.price) * mk) });
+      const rooms = [];
+      T.divs.forEach((d) => d.rooms.forEach((rm) => { const key = rm.name || ''; let s = rooms.find((x) => x.key.toLowerCase() === key.toLowerCase()); if (!s) { s = { key, items: [] }; rooms.push(s); } s.items.push(...rm.items); }));
+      if (rooms.some((x) => x.key)) {
+        const tail = q.sections.slice(1);
+        q.sections = rooms.map((s) => ({ title: (s.key || 'Furnitur lainnya').toUpperCase(), items: s.items.map(line) })).concat(tail);
+      } else q.sections[0].items = T.items.map(line);
     }
     return q;
   }

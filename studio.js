@@ -260,11 +260,11 @@
     let body = '';
     if (view === 'item') {
       body = T.divs.length ? T.divs.map((g) => `<div class="sech"><b>${esc(g.name)}</b><span class="muted s">${rp(g.total)}</span></div>
-        ${g.items.map((it) => { const idx = r.items.findIndex((x) => x.id === it.id); return `<div class="row click" data-act="s-ritem" data-i="${idx}"><div class="grow"><div class="t">${esc(it.desc || '(tanpa uraian)')}${it.ahspId ? '' : ' <span class="badge">manual</span>'}</div>
-          <div class="s">${nf(it.qty)} ${esc(it.unit || '')} × ${rp(it.price)}${it.remark ? ' · ' + esc(it.remark) : ''}</div></div><div class="amt">${rp(it.total)}</div></div>`; }).join('')}`).join('')
+        ${g.rooms.map((rm) => `${rm.name ? `<div class="subh"><b>${esc(rm.name)}</b><span class="muted s">${rp(rm.total)}</span><button class="linkbtn" data-act="s-room-ren" data-k="${esc(rm.name)}">Ganti nama</button></div>` : ''}${rm.items.map((it) => { const idx = r.items.findIndex((x) => x.id === it.id); return `<div class="row click" data-act="s-ritem" data-i="${idx}"><div class="grow"><div class="t">${esc(it.desc || '(tanpa uraian)')}${it.ahspId ? '' : ' <span class="badge">manual</span>'}</div>
+          <div class="s">${nf(it.qty)} ${esc(it.unit || '')} × ${rp(it.price)}${it.remark ? ' · ' + esc(it.remark) : ''}</div></div><div class="amt">${rp(it.total)}</div></div>`; }).join('')}`).join('')}`).join('')
         : '<div class="empty">Belum ada item.<br>Ketuk + lalu pilih analisa dan isi volume.</div>';
     } else if (view === 'div') {
-      body = T.divs.map((g, i) => `<div class="row"><div class="grow"><div class="t">${i + 1}. ${esc(g.name)}</div><div class="bar"><i style="width:${Math.round(g.pct)}%"></i></div></div><div class="amt">${rp(g.total)}<div class="s muted">${nf(Math.round(g.pct * 100) / 100)}%</div></div></div>`).join('') || '<div class="empty">Belum ada item.</div>';
+      body = T.divs.map((g, i) => `<div class="row"><div class="grow"><div class="t">${i + 1}. ${esc(g.name)}</div><div class="bar"><i style="width:${Math.round(g.pct)}%"></i></div></div><div class="amt">${rp(g.total)}<div class="s muted">${nf(Math.round(g.pct * 100) / 100)}%</div></div></div>${g.rooms.filter((rm) => rm.name).map((rm) => `<div class="row" style="padding-left:16px"><div class="grow s">${esc(rm.name)}</div><div class="amt s">${rp(rm.total)}</div></div>`).join('')}`).join('') || '<div class="empty">Belum ada item.</div>';
     } else {
       const R = S.rabResources(r);
       body = `<div class="grid" style="margin-bottom:10px">${Object.keys(S.KINDS).filter((k) => R.by[k]).map((k) => `<div class="stat"><div class="l">${S.KINDS[k]}</div><div class="v" style="font-size:15px">${rp(R.by[k])}</div></div>`).join('')}</div>` +
@@ -329,6 +329,8 @@
     W.openSheet(`<form data-form="s-ritem" data-id="${r.id}" data-i="${idx}">${W.head(idx >= 0 ? 'Ubah item RAB' : 'Item RAB baru')}
       <label>Analisa harga satuan</label><select name="ahspId"><option value="">— manual / lump sum —</option>${ahspOptions(it.ahspId)}</select>
       <div class="cols"><div><label>Divisi</label><select name="division">${S.DIVISIONS.map((d) => opt(d, d, d === it.division)).join('')}</select></div><div><label>Satuan</label><input name="unit" value="${esc(it.unit || '')}"></div></div>
+      <label>Ruangan / sub bab (opsional)</label><input name="room" list="roomList" value="${esc(it.room != null ? it.room : (idx < 0 ? W.ui.lastRoom || '' : ''))}" placeholder="mis. Kamar Tidur Utama, Dapur" autocomplete="off">
+      <datalist id="roomList">${[...new Set((r.items || []).map((x) => (x.room || '').trim()).filter(Boolean).concat(ROOMS))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
       <label>Uraian / item</label><input name="desc" required value="${esc(it.desc || '')}">
       <label>Spesifikasi (opsional)</label><input name="spec" value="${esc(it.spec || '')}" placeholder="mis. merk / tipe / ukuran">
       <label>Volume — boleh rumus, mis. 4*3,5*0,3</label><input name="qty" inputmode="text" value="${esc(it.qtyExpr || (it.qty !== '' && it.qty != null ? nf(it.qty) : ''))}" autocomplete="off"><div class="s" id="qtyOut"></div>
@@ -342,6 +344,7 @@
     f.dataset.manual = it.manualPrice ? '1' : '';
     rItemRefresh(f, false);
   }
+  const ROOMS = ['Ruang Tamu', 'Ruang Keluarga', 'Ruang Makan', 'Dapur', 'Kamar Tidur Utama', 'Kamar Tidur Anak', 'Kamar Tidur Tamu', 'Kamar Mandi', 'Ruang Kerja', 'Mushola', 'Foyer', 'Teras', 'Carport', 'Area Laundry'];
   function rItemRefresh(f, fromAhsp) {
     const a = f.ahspId.value ? W.byId(f.ahspId.value) : null;
     const box = $('#compBox', f), note = $('#priceNote', f);
@@ -583,6 +586,12 @@
       case 's-rview': go({ rView: el.dataset.k }); return true;
       case 's-ritem': rItemForm(curR(), Number(el.dataset.i)); return true;
       case 's-ritem-del': { const f = el.closest('form'), r = deep(curR()); r.items.splice(Number(f.dataset.i), 1); await W.save('rab', r); W.closeSheet(); W.render(); return true; }
+      case 's-room-ren': {
+        const old = el.dataset.k, nu = prompt('Ganti nama ruangan "' + old + '" menjadi:', old);
+        if (nu == null || !nu.trim() || nu.trim() === old) return true;
+        const r = deep(curR()); r.items.forEach((it) => { if ((it.room || '').trim().toLowerCase() === old.toLowerCase()) it.room = nu.trim(); });
+        await W.save('rab', r); W.render(); W.toast('Nama ruangan diganti'); return true;
+      }
       case 's-r-refresh': {
         const r = deep(curR()), pm = prices(); let n = 0;
         r.items.forEach((it) => { const a = it.ahspId && W.byId(it.ahspId); if (a && !a.deleted && !it.manualPrice) { const s = S.snapshot(a, pm); if (s.price !== Number(it.price)) n++; Object.assign(it, s); } });
@@ -693,11 +702,11 @@
         const r = deep(curR()), idx = Number(f.dataset.i), qty = evalQty(d.qty);
         if (Number.isNaN(qty)) { W.toast('Volume tidak valid'); return true; }
         const old = idx >= 0 ? r.items[idx] : { id: C.uid() };
-        const it = Object.assign({}, old, { division: d.division, desc: d.desc.trim(), spec: d.spec.trim(), unit: d.unit.trim(), qty, qtyExpr: isExpr(d.qty) ? d.qty.trim() : '', price: C.parseNum(d.price), remark: d.remark.trim(), ahspId: d.ahspId || '' });
+        const it = Object.assign({}, old, { division: d.division, desc: d.desc.trim(), spec: d.spec.trim(), unit: d.unit.trim(), qty, qtyExpr: isExpr(d.qty) ? d.qty.trim() : '', price: C.parseNum(d.price), remark: d.remark.trim(), ahspId: d.ahspId || '', room: (d.room || '').trim() });
         const a = it.ahspId && W.byId(it.ahspId);
         if (a) { const s = S.snapshot(a, prices()); it.comps = s.comps; it.manualPrice = it.price !== s.price; } else { it.comps = []; it.manualPrice = false; }
         if (idx >= 0) r.items[idx] = it; else r.items.push(it);
-        W.ui.lastDiv = it.division;
+        W.ui.lastDiv = it.division; W.ui.lastRoom = it.room;
         await W.save('rab', r);
         if (idx < 0 && f.dataset.again !== '0') { W.render(); rItemForm(W.byId(r.id), -1); W.toast('Item ditambahkan · isi item berikutnya atau tutup'); return true; }
         return 'done';
