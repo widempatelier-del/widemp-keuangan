@@ -127,7 +127,91 @@
     return res;
   }
 
+  /* ---------- Dokumen: terbilang, nomor, invoice ---------- */
+  const BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const ROMAWI = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+  const SATUAN = ['', 'Satu', 'Dua', 'Tiga', 'Empat', 'Lima', 'Enam', 'Tujuh', 'Delapan', 'Sembilan', 'Sepuluh', 'Sebelas'];
+  function terbilangInt(n) {
+    if (n < 12) return SATUAN[n];
+    if (n < 20) return SATUAN[n - 10] + ' Belas';
+    if (n < 100) return SATUAN[Math.floor(n / 10)] + ' Puluh' + (n % 10 ? ' ' + SATUAN[n % 10] : '');
+    if (n < 200) return 'Seratus' + (n - 100 ? ' ' + terbilangInt(n - 100) : '');
+    if (n < 1000) return SATUAN[Math.floor(n / 100)] + ' Ratus' + (n % 100 ? ' ' + terbilangInt(n % 100) : '');
+    if (n < 2000) return 'Seribu' + (n - 1000 ? ' ' + terbilangInt(n - 1000) : '');
+    const units = [[1e12, 'Triliun'], [1e9, 'Miliar'], [1e6, 'Juta'], [1e3, 'Ribu']];
+    for (const [v, w] of units) {
+      if (n >= v) { const q = Math.floor(n / v), r = n % v; return terbilangInt(q) + ' ' + w + (r ? ' ' + terbilangInt(r) : ''); }
+    }
+    return '';
+  }
+  function terbilang(n) {
+    n = Math.round(Math.abs(Number(n) || 0));
+    return (n === 0 ? 'Nol' : terbilangInt(n)) + ' Rupiah';
+  }
+  function tanggalPanjang(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-').map(Number);
+    return `${d} ${BULAN_PANJANG[m - 1]} ${y}`;
+  }
+  function docNumber(prefix, seq, iso) {
+    const [y, m] = iso.split('-').map(Number);
+    return `${prefix}/${String(seq).padStart(3, '0')}/${ROMAWI[m - 1]}/${y}`;
+  }
+  // urutan berikutnya per tahun, per jenis dokumen
+  function nextSeq(docs, iso) {
+    const y = String(iso).slice(0, 4);
+    return docs.filter((d) => !d.deleted && String(d.date).slice(0, 4) === y).reduce((m, d) => Math.max(m, Number(d.seq) || 0), 0) + 1;
+  }
+  function invoiceTotals(inv) {
+    const lines = (inv.items || []).map((it) => Math.round((Number(it.qty) || 0) * (Number(it.price) || 0)));
+    const subtotal = lines.reduce((s, x) => s + x, 0);
+    const discount = Math.round(Number(inv.discount) || 0);
+    const tax = Math.round(((subtotal - discount) * (Number(inv.taxPct) || 0)) / 100);
+    return { lines, subtotal, discount, tax, total: subtotal - discount + tax };
+  }
+  // angka Indonesia: 255.73 -> "255,73"
+  function fmtNum(n) {
+    n = Number(n) || 0;
+    const [i, d] = String(Math.round(n * 100) / 100).split('.');
+    return i.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (d ? ',' + d : '');
+  }
+  function parseDec(s) { return Number(String(s == null ? '' : s).replace(/\./g, '').replace(',', '.')) || 0; }
+
+  /* ---------- Periode ringkasan ---------- */
+  const PERIODS = { m1: 1, m3: 3, m6: 6, y: 0 };
+  const lastDay = (y, m) => new Date(y, m + 1, 0).getDate();
+  function periodRange(kind, now = new Date()) {
+    const y = now.getFullYear(), m = now.getMonth();
+    const n = kind === 'y' ? m + 1 : PERIODS[kind] || 3;
+    const mk = (offset) => {
+      const s = new Date(y, m - offset - n + 1, 1), e = new Date(y, m - offset, 1);
+      const months = [];
+      for (let i = 0; i < n; i++) { const d = new Date(s.getFullYear(), s.getMonth() + i, 1); months.push({ key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}`, label: `${BULAN[d.getMonth()]} ${d.getFullYear()}` }); }
+      return { start: `${s.getFullYear()}-${pad(s.getMonth() + 1)}-01`, end: `${e.getFullYear()}-${pad(e.getMonth() + 1)}-${pad(lastDay(e.getFullYear(), e.getMonth()))}`, months };
+    };
+    const cur = mk(0), prev = mk(n);
+    const a = cur.months[0], b = cur.months[cur.months.length - 1];
+    const sameYear = a.key.slice(0, 4) === b.key.slice(0, 4);
+    cur.label = n === 1 ? b.label : `${sameYear ? a.label.split(' ')[0] : a.label} – ${b.label}`;
+    return { cur, prev };
+  }
+  function rangeTotals(accounts, txs, r) {
+    const u = usahaTxs(accounts, txs).filter((t) => t.date >= r.start && t.date <= r.end);
+    return { in: sumTx(u, (t) => t.kind === 'in'), out: sumTx(u, (t) => t.kind === 'out') };
+  }
+  // saldo kas usaha sampai akhir tanggal (inklusif)
+  function balanceAt(accounts, txs, iso) {
+    const accs = accounts.filter((a) => !a.deleted && a.scope !== 'pribadi');
+    const opening = accs.reduce((s, a) => s + (Number(a.opening) || 0), 0);
+    const u = usahaTxs(accounts, txs).filter((t) => t.date <= iso);
+    return opening + sumTx(u, (t) => t.kind === 'in') - sumTx(u, (t) => t.kind === 'out');
+  }
+  // perubahan persen; null jika pembanding 0
+  const pctChange = (cur, prev) => (prev ? ((cur - prev) / Math.abs(prev)) * 100 : null);
+
   return {
+    PERIODS, periodRange, rangeTotals, balanceAt, pctChange,
+    BULAN_PANJANG, terbilang, tanggalPanjang, docNumber, nextSeq, invoiceTotals, fmtNum, parseDec,
     BULAN, PRESETS, uid, isoDate, monthKey, fmtRp, parseNum, live, mergeRecords,
     makeTermLabels, scheduleAmounts, paidFor, projectSummary, piutangList,
     balances, usahaTxs, monthTotals, monthlySeries,

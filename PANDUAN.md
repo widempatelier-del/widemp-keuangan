@@ -1,4 +1,4 @@
-# Widemp Keuangan — Panduan Pemasangan (Tahap 1)
+# Widemp Keuangan — Panduan Pemasangan
 
 Isi tahap 1: proyek dan termin, kas masuk/keluar, ringkasan (saldo, piutang, grafik 6 bulan), sinkron Google Drive, serta cadangan JSON.
 
@@ -71,6 +71,20 @@ Di Drive akan muncul folder **Widemp Atelier** berisi `widemp-data.json`. **Jang
 
 Untuk memasang versi baru, unggah file baru ke repository GitHub (timpa file lama). Perangkat akan memakai versi baru pada pembukaan **kedua** setelah unggahan.
 
-## Tahap berikutnya
+## Memperbarui ke versi baru (mis. tahap 2)
 
-Tahap 2 akan menambahkan invoice dan kwitansi PDF (nomor otomatis, terbilang, meterai, opsi pajak) serta foto bukti nota.
+1. Ekstrak zip versi baru di laptop.
+2. Di GitHub buka repository → **Add file → Upload files**.
+3. Seret **seluruh isi** folder hasil ekstrak, **termasuk folder `assets`** (folder ini berisi font untuk PDF).
+4. Klik **Commit changes**. File lama dengan nama sama otomatis tertimpa.
+5. Tunggu 1–2 menit, lalu buka aplikasi dua kali (pembukaan pertama mengunduh versi baru).
+
+## Invoice & kwitansi (tahap 2)
+
+- **Pengaturan → Invoice & kwitansi**: kota, kontak, rekening, awalan nomor, dan catatan bawaan. Sudah terisi dari contoh dokumen Anda, cek sekali.
+- **Invoice per termin**: buka proyek → tombol **Buat invoice** pada termin. Termin otomatis berstatus *Ditagih* dengan jatuh tempo dari invoice.
+- **Invoice nilai penuh** (seperti contoh per m²): buka proyek → **Invoice nilai penuh**, lalu ubah item (qty, satuan, harga).
+- **Kwitansi**: otomatis ditawarkan setelah **Catat pembayaran**. Untuk pemasukan lain, ketuk **+ Kwitansi** di daftar transaksi.
+- Di layar dokumen: **Unduh PDF**, **Bagikan** (langsung ke WhatsApp dari HP), atau **Simpan ke Drive** (masuk ke folder `Widemp Atelier/Invoice` atau `/Kwitansi`).
+- Nomor dibuat berurutan per tahun. Jika dua perangkat membuat dokumen saat offline, nomornya bisa sama; aplikasi memperingatkan, dan nomor bisa diubah manual.
+- Kwitansi ≥ Rp5.000.000 otomatis diberi kotak tempat meterai.

@@ -111,6 +111,7 @@
   }
   function disconnect() {
     [K.on, K.folder, K.file, K.last].forEach((k) => LS.removeItem(k));
+    Object.keys(LS).filter((k) => k.startsWith('wk_dir_')).forEach((k) => LS.removeItem(k));
     token = null; tokenExp = 0;
   }
 
@@ -135,5 +136,21 @@
     throw new Error('Sinkron bentrok, coba lagi');
   }
 
-  window.DriveSync = { K, clientId, isConnected, hasToken, lastSync, connect, disconnect, sync };
+  /** Simpan PDF ke "Widemp Atelier/<sub>/". Nama sama = file lama diperbarui, tidak dobel. */
+  async function uploadFile(sub, name, blob) {
+    await getToken(true);
+    const root = await ensure(FOLDER_NAME, 'application/vnd.google-apps.folder', null, K.folder);
+    const dir = await ensure(sub, 'application/vnd.google-apps.folder', root, 'wk_dir_' + sub);
+    const q = `name='${name.replace(/'/g, "\\'")}' and '${dir}' in parents and trashed=false`;
+    const found = ((await j(`${D}?q=${encodeURIComponent(q)}&fields=files(id)&spaces=drive`)).files || [])[0];
+    if (found) {
+      await api(`https://www.googleapis.com/upload/drive/v3/files/${found.id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': blob.type }, body: blob });
+      return found.id;
+    }
+    const meta = await j(`${D}?fields=id`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parents: [dir], mimeType: blob.type }) });
+    await api(`https://www.googleapis.com/upload/drive/v3/files/${meta.id}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': blob.type }, body: blob });
+    return meta.id;
+  }
+
+  window.DriveSync = { K, clientId, isConnected, hasToken, lastSync, connect, disconnect, sync, uploadFile };
 })();
