@@ -210,7 +210,21 @@
   // perubahan persen; null jika pembanding 0
   const pctChange = (cur, prev) => (prev ? ((cur - prev) / Math.abs(prev)) * 100 : null);
 
+  /* ---------- Kewajiban / cicilan ---------- */
+  function liabilitySummary(l, txs, mk) {
+    const mine = txs.filter((t) => !t.deleted && t.kind === 'out' && t.liabilityId === l.id);
+    const paidApp = mine.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const paid = (Number(l.paidBefore) || 0) + paidApp;
+    const total = Number(l.total) || 0;
+    const remaining = Math.max(0, total - paid);
+    const thisMonth = mine.filter((t) => monthKey(t.date) === mk).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const monthly = Number(l.monthly) || 0;
+    const monthsLeft = monthly ? Math.ceil(remaining / monthly) : null;
+    return { paid, paidApp, remaining, total, monthly, thisMonth, monthsLeft, dueThisMonth: monthly > 0 && remaining > 0 && thisMonth < Math.min(monthly, remaining) };
+  }
+
   return {
+    liabilitySummary,
     PERIODS, periodRange, rangeTotals, balanceAt, pctChange,
     BULAN_PANJANG, terbilang, tanggalPanjang, docNumber, nextSeq, invoiceTotals, fmtNum, parseDec,
     BULAN, PRESETS, uid, isoDate, monthKey, fmtRp, parseNum, live, mergeRecords,

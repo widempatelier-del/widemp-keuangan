@@ -45,7 +45,7 @@
 
   const DEFAULT_CATS = {
     in: ['Pembayaran proyek', 'Jasa konsultasi', 'Lainnya'],
-    out: ['Gaji & honor', 'Transportasi', 'Material', 'Tukang / subkon', 'Software & langganan', 'Operasional kantor', 'Pembangunan kantor', 'Cicilan hutang', 'Pajak', 'Lainnya'],
+    out: ['Gaji & honor', 'Transportasi', 'Material', 'Tukang / subkon', 'Software & langganan', 'Operasional kantor', 'Pembangunan kantor', 'Cicilan rumah kantor', 'Cicilan hutang', 'Pajak', 'Lainnya'],
   };
   // Seed pakai id tetap & updatedAt 0 agar tidak menimpa data asli dan tidak dobel antar perangkat.
   async function seed() {
@@ -116,6 +116,51 @@
   function kpi(icon, label, value, sub) {
     return `<div class="stat kpi"><div class="ic">${icon}</div><div class="b"><div class="l">${label}</div><div class="v">${value}</div><div class="d">${sub}</div></div></div>`;
   }
+  function liabPanel(compact) {
+    const ls = of('liability'), mk = C.monthKey(C.isoDate()), txs = of('tx');
+    if (!ls.length && compact) return '';
+    const rows = ls.map((l) => Object.assign({ l }, C.liabilitySummary(l, txs, mk))).sort((a, b) => b.remaining - a.remaining);
+    const total = rows.reduce((s, r) => s + r.remaining, 0), dueNow = rows.filter((r) => r.dueThisMonth).reduce((s, r) => s + Math.min(r.monthly, r.remaining) - r.thisMonth, 0);
+    return `<div class="panel"><div class="panel-h"><h3>Kewajiban &amp; Cicilan</h3><span style="font-weight:700">${rp(total)}</span></div>
+      ${dueNow ? `<div class="s muted" style="margin:-4px 0 6px">Cicilan bulan ini belum dibayar: <b class="warn">${rp(dueNow)}</b></div>` : ''}
+      ${rows.length ? rows.map((r) => { const pct = r.total ? Math.round((r.paid / r.total) * 100) : 0; return `
+        <div class="row" style="align-items:flex-start"><div class="grow"><div class="t click" data-act="edit-liab" data-id="${r.l.id}" style="cursor:pointer">${esc(r.l.name)} ${r.remaining <= 0 ? '<span class="badge ok">Lunas</span>' : r.dueThisMonth ? '<span class="badge bill">Bulan ini belum</span>' : r.monthly ? '<span class="badge ok">Bulan ini ✓</span>' : ''}</div>
+          <div class="s">Sisa ${rp(r.remaining)} dari ${rp(r.total)}${r.monthly ? ` · ${rp(r.monthly)}/bulan${r.monthsLeft ? ' · ±' + (r.monthsLeft >= 24 ? Math.round(r.monthsLeft / 12) + ' tahun' : r.monthsLeft + ' bulan') + ' lagi' : ''}` : ''}</div>
+          <div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>
+          ${r.remaining > 0 ? `<div class="actions" style="margin:8px 0 0"><button class="btn sm primary" data-act="pay-liab" data-id="${r.l.id}">Bayar cicilan</button></div>` : ''}</div>
+          <div class="amt">${pct}%</div></div>`; }).join('') : '<div class="empty">Belum ada kewajiban.</div>'}
+      ${compact ? '' : '<div class="actions"><button class="btn sm" data-act="new-liab">+ Tambah kewajiban</button></div>'}</div>`;
+  }
+  function liabForm(l) {
+    const outCats = cats('out');
+    openSheet(`<form data-form="liab" data-id="${l ? l.id : ''}">${head(l ? 'Ubah kewajiban' : 'Kewajiban baru')}
+      <label>Nama</label><input name="name" required value="${esc(l ? l.name : '')}" placeholder="mis. Cicilan rumah kantor">
+      <div class="cols"><div><label>Total kewajiban (Rp)</label><input name="total" class="money" inputmode="numeric" required value="${fmtMoneyInput(l ? l.total : '')}"></div>
+      <div><label>Sudah dibayar sebelum aplikasi (Rp)</label><input name="paidBefore" class="money" inputmode="numeric" value="${fmtMoneyInput(l ? l.paidBefore : '')}"></div></div>
+      <div class="cols"><div><label>Cicilan per bulan (Rp, kosongkan bila tidak tetap)</label><input name="monthly" class="money" inputmode="numeric" value="${fmtMoneyInput(l ? l.monthly : '')}"></div>
+      <div><label>Kategori pengeluaran</label><select name="category">${outCats.map((c) => opt(c, c, l ? l.category === c : c === 'Cicilan hutang')).join('')}</select></div></div>
+      <label>Catatan</label><input name="note" value="${esc(l ? l.note : '')}">
+      <div class="note">Pembayaran yang dicatat lewat "Bayar cicilan" otomatis mengurangi sisa.</div>
+      ${foot(l ? '<button class="btn danger" type="button" data-act="del-liab" data-id="' + l.id + '">Hapus</button>' : '')}</form>`);
+  }
+  function billingTotals() {
+    const terms = of('term'), txs = of('tx');
+    let contract = 0, received = 0, billed = 0;
+    for (const p of of('project')) {
+      if (p.status === 'batal') continue;
+      const s = C.projectSummary(p, terms.filter((t) => t.projectId === p.id), txs);
+      contract += s.contract; received += s.received; billed += s.billedOutstanding;
+    }
+    return { contract, received, remaining: Math.max(0, contract - received), billed };
+  }
+  function billingCards() {
+    const b = billingTotals(), pct = b.contract ? Math.round((b.received / b.contract) * 100) : 0;
+    return `<div class="grid g3" style="margin-top:16px">
+      ${kpi(ICON.layers, 'Total Nilai Kontrak', rp(b.contract), 'Semua proyek, kecuali yang batal')}
+      ${kpi(ICON.up, 'Sudah Terbayar', rp(b.received), `<span class="up">${pct}%</span> dari nilai kontrak<div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>`)}
+      ${kpi(ICON.wallet, 'Sisa Tagihan', rp(b.remaining), b.billed ? `${rp(b.billed)} sudah ditagih, menunggu bayar` : 'Belum ada yang sedang ditagih')}
+    </div>`;
+  }
   function vDash() {
     const sumOfP = (p) => C.projectSummary(p, of('term').filter((t) => t.projectId === p.id), of('tx'));
     const accounts = of('account'), txs = of('tx'), projects = of('project'), terms = of('term');
@@ -141,6 +186,7 @@
       ${kpi(ICON.wallet, 'Saldo Kas', rp(saldo), delta(saldo, saldoPrev, true))}
       ${kpi(ICON.layers, 'Proyek Aktif', String(active.length), newP ? `+${newP} proyek baru` : 'Tidak ada proyek baru')}
     </div>
+    ${billingCards()}
     <div class="cols wide" style="margin-top:16px">
       <div class="panel"><div class="panel-h"><h3>Arus Kas</h3><div class="legend"><span><i style="background:var(--accent)"></i>Pemasukan</span><span><i style="background:#c9c3b8"></i>Pengeluaran</span></div></div>${lineChart(series)}</div>
       <div class="panel"><div class="panel-h"><h3>Aktivitas Terbaru</h3><button class="linkbtn" data-act="go-cash">Lihat Semua →</button></div>
@@ -154,10 +200,10 @@
         ${unbilled ? `<div class="s muted" style="margin:-4px 0 6px">Belum ditagih: <b style="color:var(--ink)">${rp(unbilled)}</b> dari ${unbilledN} termin</div>` : ''}
         ${pi.length ? pi.map((i) => `<div class="row click" data-act="open-project" data-id="${i.project.id}"><div class="grow"><div class="t">${esc(i.project.name)} · ${esc(i.term.label)}</div>
           <div class="s">Jatuh tempo ${fmtDate(i.term.dueDate)} ${i.overdue ? '<span class="badge late">Terlambat</span>' : ''}</div></div><div class="amt">${rp(i.remaining)}</div></div>`).join('') : '<div class="empty">Tidak ada termin yang menunggu pembayaran.</div>'}</div>
-      <div class="panel"><div class="panel-h"><h3>Proyek Aktif</h3></div>
+      <div>${liabPanel(true)}<div class="panel"><div class="panel-h"><h3>Proyek Aktif</h3></div>
         ${active.length ? active.map((p) => { const s = sumOf(p); const pct = s.contract ? Math.min(100, Math.round((s.received / s.contract) * 100)) : 0; return `
           <div class="row click" data-act="open-project" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div>
-          <div class="s">Dibayar ${rp(s.received)} dari ${rp(s.contract)} (${pct}%) · progres kerja ${Number(p.progress) || 0}%</div><div class="bar"><i style="width:${pct}%"></i></div></div></div>`; }).join('') : '<div class="empty">Belum ada proyek aktif.</div>'}</div>
+          <div class="s">Dibayar ${rp(s.received)} dari ${rp(s.contract)} (${pct}%) · progres kerja ${Number(p.progress) || 0}%</div><div class="bar"><i style="width:${pct}%"></i></div></div></div>`; }).join('') : '<div class="empty">Belum ada proyek aktif.</div>'}</div></div>
     </div>`;
   }
 
@@ -199,7 +245,7 @@
   function vProjects() {
     const projects = of('project').sort((a, b) => (STORD[a.status] ?? 9) - (STORD[b.status] ?? 9) || (b.createdAt || 0) - (a.createdAt || 0));
     const terms = of('term'), txs = of('tx'), today = C.isoDate();
-    return `<h2>Proyek</h2>` + (projects.length ? projects.map((p) => {
+    return `<h2>Proyek</h2>` + (projects.length ? billingCards().replace('margin-top:16px', 'margin:0 0 16px') : '') + (projects.length ? projects.map((p) => {
       const s = C.projectSummary(p, terms.filter((t) => t.projectId === p.id), txs);
       const next = s.sched.find((t) => t.remaining > 0);
       const pct = s.contract ? Math.min(100, Math.round((s.received / s.contract) * 100)) : 0;
@@ -268,7 +314,7 @@
     txs.sort((a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0));
     const u = C.usahaTxs(accounts, txs);
     const inn = u.filter((t) => t.kind === 'in').reduce((s, t) => s + t.amount, 0), out = u.filter((t) => t.kind === 'out').reduce((s, t) => s + t.amount, 0);
-    return `<h2>Kas masuk &amp; keluar</h2>
+    return liabPanel(false) + `<h2>Kas masuk &amp; keluar</h2>
     <div class="filters">
       <input type="month" id="fMonth" value="${esc(ui.month)}" aria-label="Bulan">
       <select id="fKind" aria-label="Jenis"><option value="">Semua</option><option value="in" ${ui.kind === 'in' ? 'selected' : ''}>Masuk</option><option value="out" ${ui.kind === 'out' ? 'selected' : ''}>Keluar</option></select>
@@ -373,15 +419,18 @@
       <label>Akun</label><select name="accountId">${accountOptions(tx.accountId || 'acc-bank')}</select>
       <label>Proyek (opsional)</label><select name="projectId"><option value="">— tanpa proyek —</option>${of('project').map((p) => opt(p.id, p.name, p.id === (tx.projectId || preset.projectId))).join('')}</select>
       <div id="termWrap"><label>Untuk termin</label><select name="termId"></select></div>
+      <div id="liabWrap"><label>Bayar kewajiban (opsional)</label><select name="liabilityId"><option value="">— bukan cicilan —</option>${of('liability').map((l) => opt(l.id, l.name, l.id === (tx.liabilityId || preset.liabilityId))).join('')}</select></div>
       <label>Catatan</label><input name="note" value="${esc(tx.note || '')}">
       ${foot(t ? '<button class="btn danger" type="button" data-act="del-tx" data-id="' + tx.id + '">Hapus</button>' : '')}</form>`);
-    const f = sheet.querySelector('form'); f.dataset.cat = tx.category || ''; f.dataset.term = tx.termId || '';
+    const f = sheet.querySelector('form'); f.dataset.cat = tx.category || preset.category || ''; f.dataset.term = tx.termId || '';
+    if (!t && preset.amount) f.amount.value = fmtMoneyInput(preset.amount);
     refreshTx(f);
   }
   function refreshTx(f) {
     const kind = f.kind.value, catSel = f.category, cur = f.dataset.cat || catSel.value;
     const list = cats(kind).slice(); if (cur && !list.includes(cur)) list.push(cur);
     catSel.innerHTML = list.map((c) => opt(c, c, c === cur)).join('');
+    $('#liabWrap', f).hidden = kind !== 'out' || !of('liability').length;
     const wrap = $('#termWrap', f), pid = f.projectId.value;
     wrap.hidden = !(kind === 'in' && pid);
     if (!wrap.hidden) {
@@ -441,7 +490,7 @@
       } else if (kind === 'tx') {
         const amount = C.parseNum(d.amount); if (!amount) return toast('Jumlah belum diisi');
         const old = id ? byId(id) : null;
-        await save('tx', Object.assign({}, old, { id, kind: d.kind, date: d.date, amount, category: d.category, accountId: d.accountId, projectId: d.projectId || '', termId: d.kind === 'in' && d.projectId ? d.termId || '' : '', note: d.note.trim() }));
+        await save('tx', Object.assign({}, old, { id, kind: d.kind, date: d.date, amount, category: d.category, accountId: d.accountId, projectId: d.projectId || '', termId: d.kind === 'in' && d.projectId ? d.termId || '' : '', liabilityId: d.kind === 'out' ? d.liabilityId || '' : '', note: d.note.trim() }));
         if (d.kind === 'in' && d.termId) await markBilled(d.termId);
       } else if (kind === 'pay') {
         const term = byId(id), amount = C.parseNum(d.amount); if (!amount) return toast('Jumlah belum diisi');
@@ -452,6 +501,9 @@
         const rec = await (kind === 'invoice' ? submitInvoice(f, d, id) : submitReceipt(d, id));
         if (!rec) return;
         render(); docView(rec); toast('Tersimpan'); return;
+      } else if (kind === 'liab') {
+        const old = id ? byId(id) : null;
+        await save('liability', Object.assign({}, old, { id, name: d.name.trim(), total: C.parseNum(d.total), paidBefore: C.parseNum(d.paidBefore), monthly: C.parseNum(d.monthly), category: d.category, note: d.note.trim() }));
       } else if (kind === 'account') {
         const old = id ? byId(id) : null;
         await save('account', Object.assign({}, old, { id, name: d.name.trim(), scope: d.scope, opening: C.parseNum(d.opening) }));
@@ -516,6 +568,10 @@
         await save('config', Object.assign({}, R.get('config') || {}, { id: 'config', city: v('#bCity'), phone: v('#bPhone'), email: v('#bEmail'), tagline: v('#bTag'), bank: v('#bBank'), accName: v('#bAccName'), accNo: v('#bAccNo'), payDays: Number(v('#bDays')) || 0, invPrefix: v('#bInvP') || 'INV', kwPrefix: v('#bKwP') || 'KWC', invNotes: $('#bNotes').value.trim() }));
         render(); toast('Tersimpan'); break;
       }
+      case 'new-liab': liabForm(null); break;
+      case 'edit-liab': liabForm(byId(id)); break;
+      case 'del-liab': if (of('tx').some((t) => t.liabilityId === id) && !confirm('Kewajiban ini punya pembayaran tercatat. Pembayarannya tetap ada sebagai pengeluaran. Hapus?')) return; if (confirm('Hapus kewajiban ini?')) { await del(id); closeSheet(); render(); } break;
+      case 'pay-liab': { const l = byId(id), sm = C.liabilitySummary(l, of('tx'), C.monthKey(C.isoDate())); txForm(null, { kind: 'out', liabilityId: l.id, category: l.category, amount: Math.min(l.monthly || sm.remaining, sm.remaining) }); break; }
       case 'drive-connect': driveConnect(); break;
       case 'drive-off': DS.disconnect(); render(); toast('Terputus dari Drive (data lokal tetap ada)'); break;
       case 'export': exportJson(); break;
@@ -542,6 +598,7 @@
     } else if (t.name === 'projectId' && t.form && t.form.dataset.form === 'invoice') { invFillProject(t.form); }
     else if (t.name === 'projectId' && t.form && t.form.dataset.form === 'receipt') { const p = byId(t.value); if (p) { t.form.from.value = clientLine(p); t.form.projectLabel.value = p.name; } }
     else if (t.name === 'projectId' && t.form) { t.form.dataset.term = ''; refreshTx(t.form); }
+    else if (t.name === 'liabilityId' && t.form) { const l = byId(t.value); if (l) { t.form.dataset.cat = l.category || ''; refreshTx(t.form); if (!C.parseNum(t.form.amount.value) && l.monthly) t.form.amount.value = fmtMoneyInput(l.monthly); } }
   });
   window.addEventListener('popstate', (e) => { ui.pid = (e.state && e.state.pid) || null; closeSheet(); render(); });
 
@@ -789,9 +846,9 @@
       (await idbAll()).forEach((r) => R.set(r.id, r));
       await seed();
       const cf = R.get('config');
-      if (cf && cf.cats && !cf.catsV2 && cf.updatedAt > 0) {
-        const out = cf.cats.out.slice(); for (const c of ['Pembangunan kantor', 'Cicilan hutang']) if (!out.includes(c)) out.splice(Math.max(0, out.length - 1), 0, c);
-        await save('config', Object.assign({}, cf, { cats: Object.assign({}, cf.cats, { out }), catsV2: true }));
+      if (cf && cf.cats && !cf.catsV3 && cf.updatedAt > 0) {
+        const out = cf.cats.out.slice(); for (const c of ['Pembangunan kantor', 'Cicilan rumah kantor', 'Cicilan hutang']) if (!out.includes(c)) out.splice(Math.max(0, out.length - 1), 0, c);
+        await save('config', Object.assign({}, cf, { cats: Object.assign({}, cf.cats, { out }), catsV2: true, catsV3: true }));
       }
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     } catch (err) {
