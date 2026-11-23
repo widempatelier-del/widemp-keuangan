@@ -177,3 +177,6 @@ label.chk input { width: auto; }
 
 .subh { display: flex; align-items: center; gap: 8px; padding: 8px 0 2px 10px; margin-top: 4px; border-left: 3px solid var(--accent); font-size: 13px; }
 .subh b { flex: 1; font-weight: 600; }
+
+.applink { font-size: 12px; font-weight: 600; padding: 5px 11px; border: 1px solid var(--line); border-radius: 99px; text-decoration: none; color: inherit; white-space: nowrap; margin-right: 8px; background: #fff; }
+.applink:hover { border-color: var(--ink, #333); }

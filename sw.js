@@ -1,5 +1,5 @@
 /* Service worker: aplikasi tetap terbuka tanpa internet */
-const CACHE = 'widemp-v10';
+const CACHE = 'widemp-v11';
 const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'sync.js', 'pdf-assets.js', 'pdf.js', 'studio-core.js', 'studio-pdf.js', 'studio.js', 'app.js', 'assets/montserrat-R.ttf', 'assets/montserrat-M.ttf', 'assets/montserrat-B.ttf', 'assets/montserrat-I.ttf', 'assets/logo-mark.png', 'assets/logo.png', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -7,7 +7,7 @@ self.addEventListener('install', (e) => {
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    caches.keys().then((ks) => Promise.all(ks.filter((k) => k.startsWith('widemp-v') && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
   );
 });
 self.addEventListener('fetch', (e) => {

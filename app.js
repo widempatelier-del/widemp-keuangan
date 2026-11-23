@@ -423,12 +423,21 @@
       <label>Akun</label><select name="accountId">${accountOptions(tx.accountId || 'acc-bank')}</select>
       <label>Proyek (opsional)</label><select name="projectId"><option value="">— tanpa proyek —</option>${of('project').map((p) => opt(p.id, p.name, p.id === (tx.projectId || preset.projectId))).join('')}</select>
       <div id="termWrap"><label>Untuk termin</label><select name="termId"></select></div>
+      <div id="rabWrap"><label>Item RAB (untuk kurva S &amp; kontrol biaya)</label><select name="rabItemId"></select></div>
       <div id="liabWrap"><label>Bayar kewajiban (opsional)</label><select name="liabilityId"><option value="">— bukan cicilan —</option>${of('liability').map((l) => opt(l.id, l.name, l.id === (tx.liabilityId || preset.liabilityId))).join('')}</select></div>
       <label>Catatan</label><input name="note" value="${esc(tx.note || '')}">
       ${foot(t ? '<button class="btn danger" type="button" data-act="del-tx" data-id="' + tx.id + '">Hapus</button>' : '')}</form>`);
-    const f = sheet.querySelector('form'); f.dataset.cat = tx.category || preset.category || ''; f.dataset.term = tx.termId || '';
+    const f = sheet.querySelector('form'); f.dataset.cat = tx.category || preset.category || ''; f.dataset.term = tx.termId || ''; f.dataset.rab = tx.rabItemId || '';
     if (!t && preset.amount) f.amount.value = fmtMoneyInput(preset.amount);
     refreshTx(f);
+  }
+  function curRab(pid) {
+    const l = of('rab').filter((r) => r.projectId === pid);
+    if (!l.length) return null;
+    const vn = (r) => { const m = String(r.version || '').match(/^V?(\d+)(?:\.(\d+))?/i); return m ? Number(m[1]) * 1000 + Number(m[2] || 0) : 0; };
+    const fin = l.find((r) => r.final), after = l.filter((r) => r.cco);
+    if (after.length) return after.sort((a, b) => vn(b) - vn(a) || (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    return fin || l.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
   }
   function refreshTx(f) {
     const kind = f.kind.value, catSel = f.category, cur = f.dataset.cat || catSel.value;
@@ -442,6 +451,13 @@
       const keep = f.termId.value || f.dataset.term;
       f.termId.innerHTML = '<option value="">— tidak terkait termin —</option>' + s.sched.filter((t) => t.remaining > 0 || t.id === keep).map((t) => opt(t.id, `${t.label} (sisa ${rp(t.remaining)})`, t.id === keep)).join('');
     } else f.termId.innerHTML = '';
+    const rw = $('#rabWrap', f), rab = kind === 'out' && pid ? curRab(pid) : null;
+    rw.hidden = !rab;
+    if (rab) {
+      const keep = f.rabItemId.value || f.dataset.rab, divs = [];
+      (rab.items || []).forEach((it) => { const d = it.division || 'Lain-lain'; let g = divs.find((x) => x.n === d); if (!g) divs.push(g = { n: d, l: [] }); g.l.push(it); });
+      f.rabItemId.innerHTML = '<option value="">— bukan item RAB —</option>' + divs.map((g) => `<optgroup label="${esc(g.n)}">${g.l.map((it) => { const k = it.baseId || it.id; return opt(k, (it.desc || '(tanpa uraian)') + (it.room ? ' · ' + it.room : ''), k === keep); }).join('')}</optgroup>`).join('');
+    } else f.rabItemId.innerHTML = '';
     f.dataset.cat = '';
   }
 
@@ -494,7 +510,7 @@
       } else if (kind === 'tx') {
         const amount = C.parseNum(d.amount); if (!amount) return toast('Jumlah belum diisi');
         const old = id ? byId(id) : null;
-        await save('tx', Object.assign({}, old, { id, kind: d.kind, date: d.date, amount, category: d.category, accountId: d.accountId, projectId: d.projectId || '', termId: d.kind === 'in' && d.projectId ? d.termId || '' : '', liabilityId: d.kind === 'out' ? d.liabilityId || '' : '', note: d.note.trim() }));
+        await save('tx', Object.assign({}, old, { id, kind: d.kind, date: d.date, amount, category: d.category, accountId: d.accountId, projectId: d.projectId || '', termId: d.kind === 'in' && d.projectId ? d.termId || '' : '', liabilityId: d.kind === 'out' ? d.liabilityId || '' : '', rabItemId: d.kind === 'out' && d.projectId ? d.rabItemId || '' : '', note: d.note.trim() }));
         if (d.kind === 'in' && d.termId) await markBilled(d.termId);
       } else if (kind === 'pay') {
         const term = byId(id), amount = C.parseNum(d.amount); if (!amount) return toast('Jumlah belum diisi');

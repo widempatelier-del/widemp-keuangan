@@ -10,6 +10,7 @@
   const cf4 = (n) => { const [i, d] = String(Math.round((Number(n) || 0) * 10000) / 10000).split('.'); return i.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (d ? ',' + d : ''); };
   const STATUS = { draft: ['Draf', ''], dikirim: ['Dikirim', 'bill'], disetujui: ['Disetujui', 'ok'], ditolak: ['Ditolak', 'late'] };
   const deep = (o) => JSON.parse(JSON.stringify(o || null));
+  const lockedR = () => { const r = W.ui.rid && W.byId(W.ui.rid); if (r && r.final) { W.toast('RAB final terkunci. Buat versi tambah/kurang untuk mengubah.'); return true; } return false; };
 
   // nilai desimal: "4,5", "1.250,5" atau rumus volume "4*3,5*0,3"
   function evalQty(s) {
@@ -273,8 +274,9 @@
     }
     const stale = staleCount(r);
     return `
-    <div class="actions" style="margin-top:0"><button class="btn sm" data-act="back">← Kembali</button><button class="btn sm" data-act="s-r-info">Ubah info</button><button class="btn sm" data-act="s-r-dup">Duplikat / versi baru</button></div>
-    <h2 style="margin-top:0">${esc(r.projectName || 'RAB')} <span class="badge">${esc(r.version || 'V1.0')}</span></h2>
+    <div class="actions" style="margin-top:0"><button class="btn sm" data-act="back">← Kembali</button><button class="btn sm" data-act="s-r-info">Ubah info</button><button class="btn sm" data-act="s-r-dup">Duplikat / versi baru</button>${r.projectId && !r.final && !r.cco ? '<button class="btn sm" data-act="s-r-final">Tetapkan RAB final</button>' : ''}${r.final || r.cco ? '<button class="btn sm" data-act="s-r-cco">Buat versi tambah/kurang</button>' : ''}</div>
+    ${r.final ? '<div class="note">RAB final (disepakati' + (r.finalAt ? ' ' + W.fmtDate(r.finalAt) : '') + ') terkunci sebagai nilai kontrak awal. Pekerjaan tambah/kurang dibuat lewat <b>Buat versi tambah/kurang</b>; aplikasi pemantau proyek membandingkan keduanya per item.</div>' : ''}
+    <h2 style="margin-top:0">${esc(r.projectName || 'RAB')} <span class="badge">${esc(r.version || 'V1.0')}</span>${r.final ? ' <span class="badge ok">FINAL · kontrak</span>' : ''}${r.cco ? ' <span class="badge bill">Tambah/kurang</span>' : ''}</h2>
     <div class="muted" style="margin-bottom:10px">${esc(r.client || 'Tanpa klien')}${r.location ? ' · ' + esc(r.location) : ''} · ${W.fmtDate(r.date)}</div>
     <div class="grid g4">
       <div class="stat"><div class="l">Subtotal BOQ</div><div class="v">${rp(T.subtotal)}</div></div>
@@ -292,7 +294,7 @@
     <div class="card">${body}</div>
     ${r.projectId && W.byId(r.projectId) && !W.byId(r.projectId).deleted ? `<div class="actions"><button class="btn sm" data-act="open-project" data-id="${r.projectId}">Buka proyek</button></div>` : ''}
     <div class="actions"><button class="btn sm danger" data-act="s-r-del">Hapus RAB</button></div>
-    ${view === 'item' ? '<button class="fab" data-act="s-ritem" data-i="-1" aria-label="Tambah item">+</button>' : ''}`;
+    ${view === 'item' && !r.final ? '<button class="fab" data-act="s-ritem" data-i="-1" aria-label="Tambah item">+</button>' : ''}`;
   }
   function staleCount(r) {
     const pm = prices();
@@ -582,17 +584,19 @@
       case 's-pdf': pdfOut('q', W.byId(id), el.dataset.m, el); return true;
       // RAB
       case 's-r-info': rabInfoForm(curR()); return true;
-      case 's-r-cost': rabCostForm(curR()); return true;
+      case 's-r-cost': if (lockedR()) return true; rabCostForm(curR()); return true;
       case 's-rview': go({ rView: el.dataset.k }); return true;
-      case 's-ritem': rItemForm(curR(), Number(el.dataset.i)); return true;
+      case 's-ritem': if (lockedR()) return true; rItemForm(curR(), Number(el.dataset.i)); return true;
       case 's-ritem-del': { const f = el.closest('form'), r = deep(curR()); r.items.splice(Number(f.dataset.i), 1); await W.save('rab', r); W.closeSheet(); W.render(); return true; }
       case 's-room-ren': {
+        if (lockedR()) return true;
         const old = el.dataset.k, nu = prompt('Ganti nama ruangan "' + old + '" menjadi:', old);
         if (nu == null || !nu.trim() || nu.trim() === old) return true;
         const r = deep(curR()); r.items.forEach((it) => { if ((it.room || '').trim().toLowerCase() === old.toLowerCase()) it.room = nu.trim(); });
         await W.save('rab', r); W.render(); W.toast('Nama ruangan diganti'); return true;
       }
       case 's-r-refresh': {
+        if (lockedR()) return true;
         const r = deep(curR()), pm = prices(); let n = 0;
         r.items.forEach((it) => { const a = it.ahspId && W.byId(it.ahspId); if (a && !a.deleted && !it.manualPrice) { const s = S.snapshot(a, pm); if (s.price !== Number(it.price)) n++; Object.assign(it, s); } });
         await W.save('rab', r); W.render(); W.toast(n + ' harga item diperbarui'); return true;
@@ -601,8 +605,23 @@
         const r = deep(curR()); ['id', 'updatedAt', 'driveSaved'].forEach((k) => delete r[k]);
         const m = String(r.version || 'V1.0').match(/^V?(\d+)(?:\.(\d+))?$/i);
         r.version = m ? `V${Number(m[1]) + 1}.0` : (r.version || '') + ' (salinan)'; r.date = C.isoDate();
-        r.items.forEach((it) => { it.id = C.uid(); });
+        r.items.forEach((it) => { it.baseId = it.baseId || it.id; it.id = C.uid(); }); delete r.final; delete r.finalAt; delete r.cco;
         const rec = await W.save('rab', r); openR(rec.id); W.toast('RAB ' + rec.version + ' dibuat'); return true;
+      }
+      case 's-r-final': {
+        const r = deep(curR());
+        if (!r.projectId) { W.toast('Kaitkan RAB ke proyek dulu lewat Ubah info'); return true; }
+        if (!confirm('Tetapkan ' + (r.version || 'RAB ini') + ' sebagai RAB final yang disepakati? Item akan dikunci; perubahan berikutnya lewat versi tambah/kurang.')) return true;
+        for (const o of W.of('rab').filter((x) => x.projectId === r.projectId && x.id !== r.id && x.final)) await W.save('rab', Object.assign(deep(o), { final: false }));
+        r.final = true; r.finalAt = C.isoDate(); delete r.cco;
+        await W.save('rab', r); W.render(); W.toast('RAB final ditetapkan'); return true;
+      }
+      case 's-r-cco': {
+        const src = curR(), r = deep(src); ['id', 'updatedAt', 'driveSaved', 'final', 'finalAt'].forEach((k) => delete r[k]);
+        const vs = W.of('rab').filter((x) => x.projectId === src.projectId).map((x) => { const m = String(x.version || '').match(/^V?(\d+)/i); return m ? Number(m[1]) : 1; });
+        r.version = 'V' + (Math.max(1, ...vs) + 1) + '.0'; r.date = C.isoDate(); r.cco = true; r.baseRabId = src.final ? src.id : (src.baseRabId || src.id);
+        r.items.forEach((it) => { it.baseId = it.baseId || it.id; it.id = C.uid(); });
+        const rec = await W.save('rab', r); openR(rec.id); W.toast('Versi tambah/kurang ' + rec.version + ' dibuat — ubah volume atau tambah item di sini'); return true;
       }
       case 's-r-del': if (W.of('quote').some((q) => q.rabId === W.ui.rid) && !confirm('RAB ini dipakai penawaran. Tetap hapus?')) return true; if (confirm('Hapus RAB ini?')) { await W.del(W.ui.rid); W.ui.rid = null; history.back(); W.toast('Dihapus'); } return true;
       case 's-r-quote': newQuoteSheet(curR()); return true;
