@@ -254,14 +254,16 @@ async function gapi(url,opts){
   return r;
 }
 const gj=async(u,o)=>(await gapi(u,o)).json();
+const ENS={};
 async function ensure(name,mime,parent,key){
   const c=lsGet(key);
-  if(c){try{const m=await gj(DAPI+'/'+c+'?fields=id,trashed');if(!m.trashed)return c}catch(e){if(e.status!==404)throw e}try{localStorage.removeItem(key)}catch(e){}}
+  if(c&&ENS[key]===c)return c;
+  if(c){try{const m=await gj(DAPI+'/'+c+'?fields=id,trashed');if(!m.trashed){ENS[key]=c;return c}}catch(e){if(e.status!==404)throw e}try{localStorage.removeItem(key)}catch(e){}}
   const q="name='"+name.replace(/'/g,"\\'")+"' and mimeType='"+mime+"' and trashed=false"+(parent?" and '"+parent+"' in parents":'');
   const find=async()=>(await gj(DAPI+'?q='+encodeURIComponent(q)+'&orderBy=createdTime&fields=files(id,createdTime)&spaces=drive')).files||[];
   let f=await find();
   if(!f.length){const b={name,mimeType:mime};if(parent)b.parents=[parent];const mine=await gj(DAPI+'?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});f=await find();if(f.length&&f[0].id!==mine.id){try{await gapi(DAPI+'/'+mine.id,{method:'DELETE'})}catch(e){}}if(!f.length)f=[mine]}
-  lsSet(key,f[0].id);return f[0].id;
+  lsSet(key,f[0].id);ENS[key]=f[0].id;return f[0].id;
 }
 const folderId=()=>ensure('Widemp Atelier','application/vnd.google-apps.folder',null,'wk_folder_id');
 async function dlText(id){return (await gapi(DAPI+'/'+id+'?alt=media')).text()}
@@ -294,7 +296,7 @@ function dedupeFin(o){
   if(n){const seen=new Set();o.terms=(o.terms||[]).filter(t=>{if(!t.finId)return true;const k=t.pid+'|'+t.finId;if(seen.has(k))return false;seen.add(k);return true})}
   return n;
 }
-let syncing=false,syncAgain=false,lastSync=+(lsGet('widemp_pm_last')||0),needLogin=false;
+let lastFinAt=0,syncing=false,syncAgain=false,lastSync=+(lsGet('widemp_pm_last')||0),needLogin=false;
 async function syncNow(interactive){
   if(!clientId()){setSync('off','Atur Google Drive di aplikasi keuangan dulu');return}
   if(syncing){syncAgain=true;return}
@@ -316,7 +318,8 @@ async function syncNow(interactive){
       break;
     }
     setSync('ok','Tersinkron '+new Date(lastSync).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}));
-    await syncFin();
+    if(interactive||Date.now()-lastFinAt>120000||S.projects.some(p=>(+p.progAt||0)>lastFinAt)){lastFinAt=Date.now();await syncFin()}
+    if(UPQ.length){kickUploads()}
   }catch(e){
     console.warn(e);
     if(e&&e.login){needLogin=true;setSync('off','Ketuk untuk masuk Google')}
@@ -327,7 +330,7 @@ async function syncNow(interactive){
 /* file foto & gambar di Google Drive */
 async function photoDir(){return ensure('Foto & Gambar Proyek','application/vnd.google-apps.folder',await folderId(),'wp_photo_dir')}
 async function driveUpload(blob,name){
-  await getToken(true);const dir=await photoDir();
+  await getToken(false);const dir=await photoDir();
   const meta={name,parents:[dir]},bd='wpb'+Math.random().toString(36).slice(2);
   const body=new Blob(['--'+bd+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+'\r\n--'+bd+'\r\nContent-Type: '+(blob.type||'application/octet-stream')+'\r\n\r\n',blob,'\r\n--'+bd+'--']);
   const r=await gj(UAPI+'?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+bd},body});
@@ -336,14 +339,37 @@ async function driveUpload(blob,name){
 const BLOB={},BLOBP={};
 function blobDB(){return new Promise((res,rej)=>{const r=indexedDB.open('widemp-proyek-file',1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function blobGet(id){try{const db=await blobDB();return await new Promise(res=>{const q=db.transaction('f').objectStore('f').get(id);q.onsuccess=()=>res(q.result||null);q.onerror=()=>res(null)})}catch(e){return null}}
-async function blobPut(id,b){try{const db=await blobDB();db.transaction('f','readwrite').objectStore('f').put(b,id)}catch(e){}}
+async function blobPut(id,b){try{const db=await blobDB();await new Promise(res=>{const tx=db.transaction('f','readwrite');tx.objectStore('f').put(b,id);tx.oncomplete=res;tx.onerror=res;tx.onabort=res})}catch(e){}}
 function gdUrl(u,interactive){
-  const id=String(u).slice(3);if(BLOB[id])return Promise.resolve(BLOB[id]);
-  if(!BLOBP[id])BLOBP[id]=(async()=>{let b=await blobGet(id);if(!b){await getToken(!!interactive);b=await (await gapi(DAPI+'/'+id+'?alt=media')).blob();blobPut(id,b)}return BLOB[id]=URL.createObjectURL(b)})().catch(e=>{delete BLOBP[id];throw e});
+  u=String(u);const local=u.slice(0,3)==='lc:',id=local?u:u.slice(3);if(BLOB[id])return Promise.resolve(BLOB[id]);
+  if(!BLOBP[id])BLOBP[id]=(async()=>{let b=await blobGet(id);if(!b){if(local)throw new Error('File masih diunggah dari perangkat lain');await getToken(!!interactive);b=await (await gapi(DAPI+'/'+id+'?alt=media')).blob();blobPut(id,b)}return BLOB[id]=URL.createObjectURL(b)})().catch(e=>{delete BLOBP[id];throw e});
   return BLOBP[id];
 }
+/* antrean unggah: file langsung tersimpan di perangkat, diunggah ke Drive di belakang layar */
+let UPQ=[];try{UPQ=JSON.parse(lsGet('wp_upq')||'[]')}catch(e){UPQ=[]}
+let upRunning=false,upTimer=null;
+const saveUpq=()=>lsSet('wp_upq',JSON.stringify(UPQ));
+function upStatus(){if(UPQ.length)setSync('busy','Mengunggah '+UPQ.length+' file ke Drive…')}
+async function kickUploads(){
+  if(upRunning||!UPQ.length||!clientId()||navigator.onLine===false)return;
+  upRunning=true;clearTimeout(upTimer);
+  try{
+    while(UPQ.length){
+      upStatus();const it=UPQ[0],b=await blobGet(it.ref);
+      if(!b){UPQ.shift();saveUpq();continue}
+      const id=await driveUpload(b,it.name);await blobPut(id,b);
+      if(BLOB[it.ref])BLOB[id]=BLOB[it.ref];
+      S=JSON.parse(JSON.stringify(S).split(it.ref).join('gd:'+id));
+      UPQ.shift();saveUpq();
+      S.savedAt=Date.now();lsSet('widemp_pm_cache',JSON.stringify(S));
+    }
+    upRunning=false;render();syncNow(false);
+  }catch(e){upRunning=false;console.warn(e);
+    if(e&&e.login){needLogin=true;setSync('off','Ketuk untuk masuk Google ('+UPQ.length+' file menunggu diunggah)')}
+    else{setSync('off','Unggahan tertunda ('+UPQ.length+' file) — dicoba lagi');upTimer=setTimeout(kickUploads,30000)}}
+}
 const PIX='data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-const isGd=u=>typeof u==='string'&&u.slice(0,3)==='gd:';
+const isGd=u=>typeof u==='string'&&(u.slice(0,3)==='gd:'||u.slice(0,3)==='lc:');
 function imgAttr(u){return isGd(u)?'src="'+PIX+'" data-gd="'+esc(u)+'"':'src="'+esc(u)+'"'}
 function openAttr(u,name){return isGd(u)?'href="#" data-gdopen="'+esc(u)+'" data-name="'+esc(name||'')+'"':'href="'+esc(u)+'" target="_blank" rel="noopener"'}
 function hydrate(root){(root||document).querySelectorAll('img[data-gd]').forEach(im=>{const u=im.getAttribute('data-gd');im.removeAttribute('data-gd');im.style.background='#eee';gdUrl(u,false).then(x=>{im.src=x}).catch(()=>{im.alt='(foto belum bisa dimuat — sinkron dulu)';im.title='Foto ada di Google Drive; masuk Google untuk memuat'})})}
@@ -513,8 +539,11 @@ function openForm(o){
 function shrink(file,max,q,asBlob){return new Promise((res,rej)=>{const img=new Image();const u=URL.createObjectURL(file);img.onload=()=>{let w=img.naturalWidth,h=img.naturalHeight;const s=Math.min(1,max/Math.max(w,h));w=Math.round(w*s);h=Math.round(h*s);const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,w,h);x.drawImage(img,0,0,w,h);URL.revokeObjectURL(u);if(asBlob)c.toBlob(b=>res(b),'image/jpeg',q);else res(c.toDataURL('image/jpeg',q))};img.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('Gambar tidak bisa dibaca'))};img.src=u})}
 async function storeFile(file){
   const kind=file.type.startsWith('image/')?'img':file.type==='application/pdf'?'pdf':'other';
-  try{const blob=kind==='img'?await shrink(file,2000,.85,true):file;const nm=kind==='img'?file.name.replace(/\.[^.]+$/,'')+'.jpg':file.name;const id=await driveUpload(blob,nm);blobPut(id,blob);return {name:file.name,url:'gd:'+id,kind}}
-  catch(e){console.warn(e);if(kind==='img'){toast('Foto disimpan di perangkat ini (Google Drive belum tersambung)');return {name:file.name,url:await shrink(file,1100,.62),kind}}toast('Gagal mengunggah ke Google Drive: '+(e.message||e));return {name:file.name,url:'',kind,noFile:true}}
+  let blob=file;if(kind==='img'){try{blob=await shrink(file,1800,.82,true)}catch(e){blob=file}}
+  const nm=kind==='img'?file.name.replace(/\.[^.]+$/,'')+'.jpg':file.name,ref='lc:'+uid();
+  await blobPut(ref,blob);
+  UPQ.push({ref,name:nm});saveUpq();setTimeout(kickUploads,300);
+  return {name:file.name,url:ref,kind};
 }
 function viewImg(url){openModal('<div style="text-align:center"><img '+imgAttr(url)+' style="max-width:100%;max-height:78vh;border-radius:8px"></div><div class="mact"><span class="sp"></span><button class="btn" data-close>Tutup</button></div>',true)}
 async function copyText(t){try{await navigator.clipboard.writeText(t);toast('Tersalin ke clipboard')}catch(e){openModal('<h3>Salin manual</h3><textarea rows="12" readonly>'+esc(t)+'</textarea><div class="mact"><span class="sp"></span><button class="btn" data-close>Tutup</button></div>')}}
@@ -738,7 +767,7 @@ async function fileFrom(v){
   const f=v.file&&v.file[0];
   if(!f&&!v.link){toast('Unggah file atau isi link');return null}
   let fl={name:v.link?'Link':'',url:'',kind:'other'};
-  if(f){toast('Mengunggah '+f.name+'…');fl=await storeFile(f);if(fl.noFile&&!v.link)toast('Jenis file ini hanya tercatat namanya — tambahkan link Drive agar bisa dibuka')}
+  if(f){fl=await storeFile(f);if(fl.noFile&&!v.link)toast('Jenis file ini hanya tercatat namanya — tambahkan link Drive agar bisa dibuka')}
   if(v.link)fl.link=v.link;return fl;
 }
 function versionForm(d){
@@ -1073,7 +1102,7 @@ function reportForm(r){const p=P(),isNew=!r;const sm=S.team.find(m=>m.role==='Si
     {k:'by',label:'Pelapor',type:'select',options:S.team.map(m=>[m.id,m.name])},
     {k:'files',label:'Foto progres (boleh beberapa)',type:'file',accept:'image/*',multiple:true}],
     onDelete:isNew?null:()=>{S.reports=S.reports.filter(x=>x!==r);save('Laporan dihapus')},
-    onSubmit:async v=>{const ph=[];for(const f of v.files||[]){toast('Mengunggah foto '+(ph.length+1)+'/'+v.files.length+'…');const s=await storeFile(f);if(s.url)ph.push(s.url)}delete v.files;
+    onSubmit:async v=>{const ph=[];for(const f of v.files||[]){const s=await storeFile(f);if(s.url)ph.push(s.url)}delete v.files;
       if(isNew)S.reports.push(Object.assign({id:uid(),pid:p.id,photos:ph},v));else{Object.assign(r,v);r.photos=(r.photos||[]).concat(ph)}
       const cf=curPhase(p);if(cf&&v.prog!==''&&+v.prog>0&&isNew){cf.progress=Math.min(100,+v.prog);p.progAt=Date.now()}
       const rr=isNew?S.reports[S.reports.length-1]:r;rr.total=progOf(p);
@@ -1139,7 +1168,7 @@ AFTER.pengawasan=()=>{
   $$('[data-cls]').forEach(b=>b.onclick=()=>{const x=S.defects.find(d=>d.id===b.dataset.cls);x.status='Ditutup';x.closedDate=today();x.closedBy=me();save('Temuan ditutup')});
   $$('[data-reo]').forEach(b=>b.onclick=()=>{const x=S.defects.find(d=>d.id===b.dataset.reo);x.status='Terbuka';save('Temuan dibuka lagi')});
 };
-async function upAll(files){const out=[];for(const f of files||[]){toast('Mengunggah foto '+(out.length+1)+'/'+files.length+'…');const s=await storeFile(f);if(s.url)out.push(s.url)}return out}
+async function upAll(files){const out=[];for(const f of files||[]){const s=await storeFile(f);if(s.url)out.push(s.url)}return out}
 function picOpts(){return [['','—']].concat(S.team.map(m=>[m.id,m.name+' ('+m.role+')']),S.vendors.map(v=>[v.id,v.name+' ('+v.kind+')']))}
 function defForm(x,pre){const p=P(),isNew=!x;
   openForm({title:isNew?'Temuan baru':'Edit temuan',values:x||Object.assign({date:today(),due:addD(today(),3),sev:'Sedang',cat:'Mutu pekerjaan',status:'Terbuka'},pre||{}),fields:[
