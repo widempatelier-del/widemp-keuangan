@@ -280,9 +280,20 @@ function merge3(base,loc,rem){
       else{const lc=l?JSON.stringify(l)!==b:b!==undefined,rc=r?JSON.stringify(r)!==b:b!==undefined;pick=lc&&!rc?l:rc&&!lc?r:lc&&rc?(l||r):(r||l)}
       if(pick)res.push(pick)}
     out[k]=res});
+  out.finIgnore=[...new Set([...(loc.finIgnore||[]),...(rem.finIgnore||[])])];
   return out;
 }
-const sameData=(a,b)=>COLS.every(k=>JSON.stringify(a[k]||[])===JSON.stringify(b[k]||[]));
+const sameData=(a,b)=>COLS.every(k=>JSON.stringify(a[k]||[])===JSON.stringify(b[k]||[]))&&JSON.stringify(a.finIgnore||[])===JSON.stringify(b.finIgnore||[]);
+function dedupeFin(o){
+  const KIDS=['tasks','docs','rab','pos','terms','reports','times','timers','chats','insp','defects'];let n=0;
+  const by={};(o.projects||[]).forEach(p=>{if(p.finId)(by[p.finId]=by[p.finId]||[]).push(p)});
+  Object.values(by).forEach(l=>{if(l.length<2)return;
+    const score=p=>KIDS.reduce((s,k)=>s+(o[k]||[]).filter(x=>x.pid===p.id&&!(k==='terms'&&x.finId)).length,0)+((p.rabProg||[]).length)+(p.note?1:0);
+    const keep=l.slice().sort((a,b)=>score(b)-score(a))[0];
+    l.forEach(p=>{if(p===keep)return;n++;KIDS.forEach(k=>(o[k]||[]).forEach(x=>{if(x.pid===p.id)x.pid=keep.id}));o.projects=o.projects.filter(x=>x!==p)})});
+  if(n){const seen=new Set();o.terms=(o.terms||[]).filter(t=>{if(!t.finId)return true;const k=t.pid+'|'+t.finId;if(seen.has(k))return false;seen.add(k);return true})}
+  return n;
+}
 let syncing=false,syncAgain=false,lastSync=+(lsGet('widemp_pm_last')||0),needLogin=false;
 async function syncNow(interactive){
   if(!clientId()){setSync('off','Atur Google Drive di aplikasi keuangan dulu');return}
@@ -295,7 +306,7 @@ async function syncNow(interactive){
       const v1=await fileVer(fid),txt=await dlText(fid);let rem=null;try{rem=txt.trim()?JSON.parse(txt):null}catch(e){rem=null}
       let merged;
       if(S._replace)merged=Object.assign({},S);else if(rem&&rem.v){merged=S._pristine?rem:merge3(loadBase(),S,rem)}else merged=S;delete merged._replace;
-      COLS.forEach(k=>{if(!Array.isArray(merged[k]))merged[k]=[]});
+      COLS.forEach(k=>{if(!Array.isArray(merged[k]))merged[k]=[]});dedupeFin(merged);
       if(!rem||!rem.v||!sameData(merged,rem)){if(await fileVer(fid)!==v1)continue;merged.savedAt=Date.now();delete merged._pristine;await upJSON(fid,merged)}
       const changed=!sameData(merged,S);
       S=merged;delete S._pristine;delete S._replace;saveBase(S);lsSet('widemp_pm_cache',JSON.stringify(S));
@@ -421,7 +432,10 @@ function finTotals(){
 function applyFin(){
   if(!FIN){render();return}
   let ch=0;const fps=finRecs('project');
+  {const ig=new Set(S.finIgnore||[]);const un=finUnlinked().filter(fp=>!ig.has(fp.id));if(un.length){un.forEach(finImport);ch+=un.length;delete S._pristine;if(!proj(PID)){PID=S.projects[0].id;lsSet('widemp_pid',PID)}}}
+  ch+=dedupeFin(S);
   S.projects.forEach(p=>{const fp=p.finId&&fps.find(x=>x.id===p.finId);if(!fp)return;const sm=finSummary(fp);
+    if(p.finName!==fp.name){if(!p.finName||p.name===p.finName)p.name=fp.name;p.finName=fp.name;ch++}
     if((+p.value||0)!==sm.contract){p.value=sm.contract;ch++}
     sm.sched.forEach(ft=>{let t=S.terms.find(x=>x.pid===p.id&&x.finId===ft.id);
       const st=ft.amount>0&&ft.paid>=ft.amount?'Lunas':ft.billed?'Ditagih':'Belum';
@@ -541,12 +555,12 @@ function newProject(p){
     {k:'note',label:'Catatan proyek',type:'textarea',rows:2},
     ...(FIN?[{k:'finId',label:'Tautkan ke proyek di aplikasi keuangan',type:'select',options:[['','— tidak ditautkan —']].concat(finRecs('project').filter(fp=>fp.id===p.finId||!S.projects.some(x=>x.finId===fp.id)).map(fp=>[fp.id,fp.name+(fp.client?' – '+fp.client:'')])),hint:'Termin & pembayaran akan mengikuti aplikasi keuangan'}]:[]),
     ...(isNew?[{k:'tpl',label:'Buat 5 tahap standar (Concept → Handover) otomatis',type:'checkbox',def:true}]:[])],
-    onDelete:isNew?null:()=>{const id=p.id;S.projects=S.projects.filter(x=>x.id!==id);['tasks','docs','rab','pos','terms','reports','times','timers','chats','insp','defects'].forEach(k=>S[k]=S[k].filter(x=>x.pid!==id));PID=(S.projects[0]||{}).id||'';save('Proyek dihapus')},
+    onDelete:isNew?null:()=>{const id=p.id;if(p.finId){S.finIgnore=[...new Set([...(S.finIgnore||[]),p.finId])]}S.projects=S.projects.filter(x=>x.id!==id);['tasks','docs','rab','pos','terms','reports','times','timers','chats','insp','defects'].forEach(k=>S[k]=S[k].filter(x=>x.pid!==id));PID=(S.projects[0]||{}).id||'';save('Proyek dihapus')},
     onSubmit:v=>{
       if(isNew){const np={id:'p'+uid(),name:v.name,client:v.client,location:v.location,value:v.value,start:v.start||today(),status:v.status,service:v.service,note:v.note,finId:v.finId||'',phases:[]};
         if(v.tpl){const dur=[14,10,21,90,7];let s=np.start;np.phases=PHASES.map((n,i)=>{const f={id:'f'+uid(),name:n,start:s,end:addD(s,dur[i]),progress:0,milestone:true,approvals:[]};s=f.end;return f})}
         S.projects.push(np);PID=np.id;lsSet('widemp_pid',PID);save('Proyek dibuat');if(FIN)applyFin()}
-      else{Object.assign(p,{name:v.name,client:v.client,location:v.location,value:v.value,start:v.start,status:v.status,service:v.service,note:v.note});if(v.finId!==undefined&&v.finId!==(p.finId||'')){if(p.finId)S.terms=S.terms.filter(t=>!(t.pid===p.id&&t.finId));p.finId=v.finId};save('Proyek diperbarui');if(FIN)applyFin()}
+      else{Object.assign(p,{name:v.name,client:v.client,location:v.location,value:v.value,start:v.start,status:v.status,service:v.service,note:v.note});if(v.finId!==undefined&&v.finId!==(p.finId||'')){if(p.finId){S.terms=S.terms.filter(t=>!(t.pid===p.id&&t.finId));if(!v.finId)S.finIgnore=[...new Set([...(S.finIgnore||[]),p.finId])]}p.finId=v.finId;if(v.finId)S.finIgnore=(S.finIgnore||[]).filter(x=>x!==v.finId)};save('Proyek diperbarui');if(FIN)applyFin()}
     }});
 }
 
