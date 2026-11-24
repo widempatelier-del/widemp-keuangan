@@ -320,6 +320,7 @@ async function syncNow(interactive){
     setSync('ok','Tersinkron '+new Date(lastSync).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}));
     if(interactive||Date.now()-lastFinAt>120000||S.projects.some(p=>(+p.progAt||0)>lastFinAt)){lastFinAt=Date.now();await syncFin()}
     if(UPQ.length){kickUploads()}
+    else if(!lsGet('wp_org_v1'))organizeExisting();
   }catch(e){
     console.warn(e);
     if(e&&e.login){needLogin=true;setSync('off','Ketuk untuk masuk Google')}
@@ -329,8 +330,15 @@ async function syncNow(interactive){
 }
 /* file foto & gambar di Google Drive */
 async function photoDir(){return ensure('Foto & Gambar Proyek','application/vnd.google-apps.folder',await folderId(),'wp_photo_dir')}
-async function driveUpload(blob,name){
-  await getToken(false);const dir=await photoDir();
+const CATF={dokumen:'Dokumen & Gambar Kerja',lapangan:'Laporan Lapangan',pengawasan:'Pengawasan',diskusi:'Diskusi',persetujuan:'Persetujuan Klien'};
+const fsName=n=>String(n||'').replace(/[\\/:*?"<>|']/g,' ').replace(/\s+/g,' ').trim().slice(0,90);
+async function projDir(pid,cat){
+  const p=proj(pid),root=await photoDir(),k='wp_dir_'+(pid||'umum');
+  const pd=await ensure(fsName(p?p.name:'Umum')||'Proyek','application/vnd.google-apps.folder',root,k);
+  return cat?ensure(fsName(cat),'application/vnd.google-apps.folder',pd,k+'_'+fsName(cat)):pd;
+}
+async function driveUpload(blob,name,dir){
+  await getToken(false);dir=dir||await photoDir();
   const meta={name,parents:[dir]},bd='wpb'+Math.random().toString(36).slice(2);
   const body=new Blob(['--'+bd+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+'\r\n--'+bd+'\r\nContent-Type: '+(blob.type||'application/octet-stream')+'\r\n\r\n',blob,'\r\n--'+bd+'--']);
   const r=await gj(UAPI+'?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+bd},body});
@@ -350,6 +358,19 @@ let UPQ=[];try{UPQ=JSON.parse(lsGet('wp_upq')||'[]')}catch(e){UPQ=[]}
 let upRunning=false,upTimer=null;
 const saveUpq=()=>lsSet('wp_upq',JSON.stringify(UPQ));
 function upStatus(){if(UPQ.length)setSync('busy','Mengunggah '+UPQ.length+' file ke Drive…')}
+async function organizeExisting(){
+  const L=[],add=(u,pid,cat)=>{if(typeof u==='string'&&u.slice(0,3)==='gd:')L.push({id:u.slice(3),pid,cat})};
+  S.docs.forEach(d=>d.versions.forEach(v=>add(v.file&&v.file.url,d.pid,CATF.dokumen)));
+  S.reports.forEach(r=>(r.photos||[]).forEach(u=>add(u,r.pid,CATF.lapangan)));
+  S.defects.forEach(x=>(x.before||[]).concat(x.after||[]).forEach(u=>add(u,x.pid,CATF.pengawasan)));
+  S.insp.forEach(x=>(x.photos||[]).forEach(u=>add(u,x.pid,CATF.pengawasan)));
+  S.chats.forEach(c=>add(c.photo,c.pid,CATF.diskusi));
+  try{
+    for(const it of L){const dir=await projDir(it.pid,it.cat);const m=await gj(DAPI+'/'+it.id+'?fields=parents');const par=(m.parents||[]);
+      if(!par.includes(dir))await gapi(DAPI+'/'+it.id+'?addParents='+dir+(par.length?'&removeParents='+par.join(','):'')+'&fields=id',{method:'PATCH',headers:{'Content-Type':'application/json'},body:'{}'})}
+    lsSet('wp_org_v1','1');if(L.length)toast(L.length+' file di Drive dirapikan per proyek');
+  }catch(e){console.warn('rapikan',e)}
+}
 async function kickUploads(){
   if(upRunning||!UPQ.length||!clientId()||navigator.onLine===false)return;
   upRunning=true;clearTimeout(upTimer);
@@ -357,7 +378,8 @@ async function kickUploads(){
     while(UPQ.length){
       upStatus();const it=UPQ[0],b=await blobGet(it.ref);
       if(!b){UPQ.shift();saveUpq();continue}
-      const id=await driveUpload(b,it.name);await blobPut(id,b);
+      const dir=it.pid?await projDir(it.pid,it.cat):null;
+      const id=await driveUpload(b,it.name,dir);await blobPut(id,b);
       if(BLOB[it.ref])BLOB[id]=BLOB[it.ref];
       S=JSON.parse(JSON.stringify(S).split(it.ref).join('gd:'+id));
       UPQ.shift();saveUpq();
@@ -540,9 +562,9 @@ function shrink(file,max,q,asBlob){return new Promise((res,rej)=>{const img=new 
 async function storeFile(file){
   const kind=file.type.startsWith('image/')?'img':file.type==='application/pdf'?'pdf':'other';
   let blob=file;if(kind==='img'){try{blob=await shrink(file,1800,.82,true)}catch(e){blob=file}}
-  const nm=kind==='img'?file.name.replace(/\.[^.]+$/,'')+'.jpg':file.name,ref='lc:'+uid();
+  const nm=today()+' '+(kind==='img'?file.name.replace(/\.[^.]+$/,'')+'.jpg':file.name),ref='lc:'+uid();
   await blobPut(ref,blob);
-  UPQ.push({ref,name:nm});saveUpq();setTimeout(kickUploads,300);
+  UPQ.push({ref,name:nm,pid:PID,cat:CATF[V]||'Lainnya'});saveUpq();setTimeout(kickUploads,300);
   return {name:file.name,url:ref,kind};
 }
 function viewImg(url){openModal('<div style="text-align:center"><img '+imgAttr(url)+' style="max-width:100%;max-height:78vh;border-radius:8px"></div><div class="mact"><span class="sp"></span><button class="btn" data-close>Tutup</button></div>',true)}
@@ -749,7 +771,7 @@ AFTER.dokumen=()=>{
   $$('[data-ed]').forEach(b=>b.onclick=()=>docForm(S.docs.find(d=>d.id===b.dataset.ed)));
   $$('[data-mk]').forEach(b=>b.onclick=()=>markup(S.docs.find(d=>d.id===b.dataset.mk),+b.dataset.vi));
 };
-const FILEF=[{k:'file',label:'Unggah file (gambar, PDF, DWG, SKP, RVT, dll.)',type:'file'},{k:'link',label:'Atau link file lain (opsional)',type:'url',ph:'https://…',hint:'File tersimpan di Google Drive folder “Widemp Atelier/Foto & Gambar Proyek”. Markup bisa dilakukan pada file gambar (JPG/PNG).'}];
+const FILEF=[{k:'file',label:'Unggah file (gambar, PDF, DWG, SKP, RVT, dll.)',type:'file'},{k:'link',label:'Atau link file lain (opsional)',type:'url',ph:'https://…',hint:'File tersimpan di Google Drive: Widemp Atelier › Foto & Gambar Proyek › nama proyek › Dokumen & Gambar Kerja. Markup bisa dilakukan pada file gambar (JPG/PNG).'}];
 function docForm(d){
   const p=P(),isNew=!d;
   openForm({title:isNew?'Dokumen baru':'Edit dokumen',values:d||{type:'Gambar Kerja (CAD)',phase:(curPhase(p)||{}).id,forSite:false},fields:[
@@ -1302,7 +1324,7 @@ R.pengaturan=()=>{
     '<label class="fld" style="margin-top:10px;max-width:320px"><span>Saya di perangkat ini adalah</span><select id="meSel">'+opt(S.team.map(m=>[m.id,m.name]),me())+'</select></label></div>';
   h+='<div class="card"><div class="hd" style="margin-bottom:6px"><h3>Proyek</h3><span class="sp"></span><button class="btn sm pri" onclick="WP.newProject()">+ Proyek</button></div><div class="list">'+S.projects.map(p=>'<div style="display:flex;gap:8px;align-items:center"><b style="flex:1">'+esc(p.name)+'</b>'+stTag(p.status)+'<button class="btn sm ghost" data-ep="'+p.id+'">Edit / hapus</button></div>').join('')+'</div></div>';
   h+=finCard();
-  h+='<div class="card"><h3 style="margin-bottom:6px">Sinkronisasi & cadangan</h3><p class="small mut">'+(clientId()?'Data tersimpan di perangkat ini dan disinkronkan ke Google Drive (folder “Widemp Atelier”, file widemp-proyek.json) memakai login Google yang sama dengan aplikasi keuangan. '+(lastSync?'Sinkron terakhir: '+fDT(lastSync)+'.':'Belum pernah sinkron.')+' <button class="btn sm" onclick="WP.sync()">⟳ Sinkron sekarang</button>':'Google Drive belum diatur. Buka aplikasi keuangan → menu Data → sambungkan Google Drive, lalu kembali ke sini.')+'</p><div class="mact"><button class="btn" id="bkC">Salin cadangan (JSON)</button><button class="btn" id="bkI">Pulihkan dari cadangan</button></div></div>';
+  h+='<div class="card"><h3 style="margin-bottom:6px">Sinkronisasi & cadangan</h3><p class="small mut">'+(clientId()?'Data tersimpan di perangkat ini dan disinkronkan ke Google Drive (folder “Widemp Atelier”, file widemp-proyek.json; file & foto di Widemp Atelier › Foto & Gambar Proyek › nama proyek › jenis) memakai login Google yang sama dengan aplikasi keuangan. '+(lastSync?'Sinkron terakhir: '+fDT(lastSync)+'.':'Belum pernah sinkron.')+' <button class="btn sm" onclick="WP.sync()">⟳ Sinkron sekarang</button>':'Google Drive belum diatur. Buka aplikasi keuangan → menu Data → sambungkan Google Drive, lalu kembali ke sini.')+'</p><div class="mact"><button class="btn" id="bkC">Salin cadangan (JSON)</button><button class="btn" id="bkI">Pulihkan dari cadangan</button></div></div>';
   return h;
 };
 AFTER.pengaturan=()=>{
