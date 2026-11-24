@@ -294,11 +294,11 @@ async function syncNow(interactive){
     for(let a=0;a<3;a++){
       const v1=await fileVer(fid),txt=await dlText(fid);let rem=null;try{rem=txt.trim()?JSON.parse(txt):null}catch(e){rem=null}
       let merged;
-      if(rem&&rem.v){merged=S._pristine?rem:merge3(loadBase(),S,rem)}else merged=S;
+      if(S._replace)merged=Object.assign({},S);else if(rem&&rem.v){merged=S._pristine?rem:merge3(loadBase(),S,rem)}else merged=S;delete merged._replace;
       COLS.forEach(k=>{if(!Array.isArray(merged[k]))merged[k]=[]});
       if(!rem||!rem.v||!sameData(merged,rem)){if(await fileVer(fid)!==v1)continue;merged.savedAt=Date.now();delete merged._pristine;await upJSON(fid,merged)}
       const changed=!sameData(merged,S);
-      S=merged;delete S._pristine;saveBase(S);lsSet('widemp_pm_cache',JSON.stringify(S));
+      S=merged;delete S._pristine;delete S._replace;saveBase(S);lsSet('widemp_pm_cache',JSON.stringify(S));
       lastSync=Date.now();lsSet('widemp_pm_last',String(lastSync));
       if(!proj(PID))PID=(S.projects[0]||{}).id||'';
       if(changed)render();
@@ -374,7 +374,10 @@ async function syncFin(){
       if((rem.schema||1)>1)throw new Error('Data keuangan dibuat versi aplikasi yang lebih baru');
       const recs=mergeRecs(rem.records||[],await finIdbAll());FIN={records:recs};
       const now=Date.now(),upd=[];
-      S.projects.forEach(p=>{if(!p.finId)return;const r=recs.find(x=>x.id===p.finId&&x.type==='project');if(!r||r.deleted)return;const pg=projProgress(p);if(Math.round(+r.progress||0)!==pg)upd.push(Object.assign({},r,{progress:pg,updatedAt:now}))});
+      let pulled=0;S.projects.forEach(p=>{if(!p.finId)return;const r=recs.find(x=>x.id===p.finId&&x.type==='project');if(!r||r.deleted)return;const pg=projProgress(p),fp=Math.round(+r.progress||0);if(fp===pg)return;
+        if((+p.progAt||0)>(+r.updatedAt||0))upd.push(Object.assign({},r,{progress:pg,updatedAt:now}));
+        else if(!evm(p)){setProgress(p,fp);p.progAt=+r.updatedAt||0;pulled++}});
+      if(pulled){S.savedAt=Date.now();lsSet('widemp_pm_cache',JSON.stringify(S))}
       if(upd.length){
         if(await fileVer(fid)!==v1)continue;
         const um=new Map(upd.map(r=>[r.id,r])),base=rem.records||[],out=base.map(r=>um.get(r.id)||r);
@@ -431,6 +434,11 @@ function applyFin(){
   if(ch&&mode!=='pending')save();else render();
 }
 function finUnlinked(){const linked=new Set(S.projects.map(p=>p.finId).filter(Boolean));return finRecs('project').filter(p=>!linked.has(p.id)&&p.status!=='batal')}
+function setProgress(p,pct){
+  pct=Math.max(0,Math.min(100,+pct||0));const ph=p.phases;if(!ph.length)return;
+  const W=ph.reduce((s,f)=>s+Math.max(1,dd(f.start,f.end)),0);let rem=pct/100*W;
+  ph.forEach(f=>{const w=Math.max(1,dd(f.start,f.end));if(rem>=w-1e-9){f.progress=100;rem-=w}else{f.progress=Math.round(rem/w*100);rem=0}});
+}
 function finImport(fp){
   const sv=(fp.service||'').toLowerCase(),t=today();let phs;
   const mk=(n,s,d,ms)=>({id:'f'+uid(),name:n,start:s,end:addD(s,d),progress:fp.status==='selesai'?100:0,milestone:ms!==false,approvals:[]});
@@ -438,6 +446,7 @@ function finImport(fp){
   else if(/desain|design/.test(sv)){const a=mk('Concept Design',t,5),b=mk('3D Rendering',a.end,5),c=mk('DED & RAB',b.end,5);phs=[a,b,c]}
   else phs=[mk('Pekerjaan',t,30,false)];
   const p={id:'p'+uid(),name:fp.name,client:fp.client||'',location:fp.address||'',value:+fp.contract||0,start:t,status:{aktif:'Berjalan',tunda:'Ditunda',selesai:'Selesai'}[fp.status]||'Berjalan',service:fp.service||'',note:fp.note||'',phases:phs,finId:fp.id};
+  setProgress(p,fp.status==='selesai'?100:fp.progress);p.progAt=+fp.updatedAt||0;
   S.projects.push(p);return p;
 }
 function finCard(){
@@ -552,7 +561,7 @@ R.ringkasan=()=>{
   const pendCO=S.chats.filter(c=>c.type==='Change Order'&&c.status==='Diajukan');
   const ms=[];S.projects.forEach(p=>p.phases.forEach(f=>{if(f.milestone&&(+f.progress||0)<100&&f.end<=addD(t,14))ms.push({p,f})}));ms.sort((a,b)=>a.f.end<b.f.end?-1:1);
   const wk=weekRange();
-  let h=(!S.projects.length?'<div class="card" style="border-color:var(--acc)"><h3>Selamat datang di Pemantau Proyek</h3><p class="small mut">Pindahkan data dari versi lama (link claude.ai), atau tambahkan proyek dari aplikasi keuangan lewat kartu Keuangan di bawah.</p><button class="btn pri" onclick="WP.restore()">Tempel data dari versi lama</button></div>':'')+'<div class="hd"><h2>Ringkasan</h2><span class="sp"></span><span class="mut small">'+new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'</span></div>';
+  let h=(S.projects.length&&!S.tasks.length&&!lsGet('wp_mig_hide')?'<div class="card" style="border-color:var(--acc)"><h3>Punya data lengkap dari versi lama?</h3><p class="small mut">Proyek di bawah dibuat otomatis dari aplikasi keuangan (tahapan standar). Data versi lama (link claude.ai) berisi tahapan, tanggal, catatan, dan tugas yang sudah disusun — tempel di sini untuk menggantikan.</p><div class="mact" style="margin-top:0"><button class="btn pri" onclick="WP.restore()">Tempel data dari versi lama</button><button class="btn ghost" onclick="WP.hideMig()">Tidak perlu</button></div></div>':'')+(!S.projects.length?'<div class="card" style="border-color:var(--acc)"><h3>Selamat datang di Pemantau Proyek</h3><p class="small mut">Pindahkan data dari versi lama (link claude.ai), atau tambahkan proyek dari aplikasi keuangan lewat kartu Keuangan di bawah.</p><button class="btn pri" onclick="WP.restore()">Tempel data dari versi lama</button></div>':'')+'<div class="hd"><h2>Ringkasan</h2><span class="sp"></span><span class="mut small">'+new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'</span></div>';
   h+='<div class="grid g4" style="margin-bottom:14px">'+
     kpi('Proyek berjalan',act.length,'')+kpi('Tugas terlambat',late.length,late.length?'bad':'')+
     kpi('Siap ditagih',rpS(readyAmt),ready.length?'ok':'',ready.length+' termin')+kpi('Temuan pengawasan terbuka',S.defects.filter(x=>x.status!=='Ditutup').length,S.defects.some(x=>x.status!=='Ditutup'&&x.due&&x.due<t)?'bad':'',pendCO.length+' change order menunggu')+'</div>';
@@ -626,7 +635,7 @@ function phaseForm(f){
     onDelete:isNew?null:()=>{p.phases=p.phases.filter(x=>x!==f);save('Tahap dihapus')},
     onSubmit:v=>{
       if(v.end<v.start){toast('Tanggal selesai sebelum tanggal mulai');return false}
-      const pr=Math.max(0,Math.min(100,v.progress||0));
+      const pr=Math.max(0,Math.min(100,v.progress||0));if(isNew||pr!==(+f.progress||0))p.progAt=Date.now();
       if(isNew){p.phases.push({id:'f'+uid(),name:v.name,start:v.start,end:v.end,progress:pr,milestone:v.milestone,approvals:[]})}
       else{const delta=dd(f.end,v.end);Object.assign(f,{name:v.name,start:v.start,end:v.end,progress:pr,milestone:v.milestone});
         if(v.shift&&delta){const i=p.phases.indexOf(f);p.phases.slice(i+1).forEach(n=>{n.start=addD(n.start,delta);n.end=addD(n.end,delta)})}}
@@ -894,7 +903,7 @@ function progForm(){
   const draw=()=>{const w=ov.querySelector('#pgW').value,we=addD(w,6);ov.querySelector('#pgL').innerHTML='<div class="tw"><table class="small"><tr><th>Item</th><th class="num">Rencana</th><th class="num">Progres %</th></tr>'+divs.map(dv=>'<tr style="background:#faf8f5"><td colspan="3"><b>'+esc(dv)+'</b></td></tr>'+src.items.filter(i=>i.div===dv&&i.total>0).map(i=>{const [s,e]=itemPlan(p,i.key);return '<tr><td>'+esc(i.desc)+'</td><td class="num mut">'+Math.round(planFrac(s,e,we)*100)+'%</td><td class="num"><input type="number" min="0" max="100" step="1" inputmode="decimal" data-k="'+esc(i.key)+'" value="'+progAt(p,i.key,we)+'" style="width:76px;text-align:right"></td></tr>'}).join('')).join('')+'</table></div>'};
   draw();ov.querySelector('#pgW').onchange=draw;
   ov.querySelector('#pgS').onclick=()=>{const w=ov.querySelector('#pgW').value,v={};ov.querySelectorAll('[data-k]').forEach(x=>{if(x.value!=='')v[x.dataset.k]=Math.max(0,Math.min(100,+x.value||0))});
-    p.rabProg=(p.rabProg||[]).filter(e=>e.w!==w);p.rabProg.push({w,v,by:me(),at:Date.now()});p.rabProg.sort((a,b)=>a.w<b.w?-1:1);ov.remove();save('Progres minggu '+fD(w)+' disimpan')};
+    p.rabProg=(p.rabProg||[]).filter(e=>e.w!==w);p.rabProg.push({w,v,by:me(),at:Date.now()});p.progAt=Date.now();p.rabProg.sort((a,b)=>a.w<b.w?-1:1);ov.remove();save('Progres minggu '+fD(w)+' disimpan')};
 }
 function rabForm(r){
   const p=P(),isNew=!r;const cats=[...new Set(S.rab.filter(x=>x.pid===p.id).map(x=>x.cat))];
@@ -1052,7 +1061,7 @@ function reportForm(r){const p=P(),isNew=!r;const sm=S.team.find(m=>m.role==='Si
     onDelete:isNew?null:()=>{S.reports=S.reports.filter(x=>x!==r);save('Laporan dihapus')},
     onSubmit:async v=>{const ph=[];for(const f of v.files||[]){toast('Mengunggah foto '+(ph.length+1)+'/'+v.files.length+'…');const s=await storeFile(f);if(s.url)ph.push(s.url)}delete v.files;
       if(isNew)S.reports.push(Object.assign({id:uid(),pid:p.id,photos:ph},v));else{Object.assign(r,v);r.photos=(r.photos||[]).concat(ph)}
-      const cf=curPhase(p);if(cf&&v.prog!==''&&+v.prog>0&&isNew)cf.progress=Math.min(100,+v.prog);
+      const cf=curPhase(p);if(cf&&v.prog!==''&&+v.prog>0&&isNew){cf.progress=Math.min(100,+v.prog);p.progAt=Date.now()}
       const rr=isNew?S.reports[S.reports.length-1]:r;rr.total=progOf(p);
       save('Laporan disimpan')}});
 }
@@ -1265,14 +1274,14 @@ AFTER.pengaturan=()=>{
 };
 function restoreForm(){
   const ov=openModal('<h3>Pindahkan / pulihkan data</h3><p class="small mut">Di aplikasi lama (link claude.ai) ketuk <b>Salin data untuk dipindahkan</b> (atau Pengaturan → Salin cadangan), lalu tempel di sini.</p><textarea rows="8" id="bkT" placeholder="Tempel data di sini"></textarea><div class="mact"><span class="sp"></span><button class="btn ghost" data-close>Batal</button><button class="btn pri" id="bkGo">Pulihkan</button></div>');
-  ov.querySelector('#bkGo').onclick=()=>{try{const d=JSON.parse(ov.querySelector('#bkT').value.trim());if(!d.v||!Array.isArray(d.projects))throw 0;COLS.forEach(k=>{if(!Array.isArray(d[k]))d[k]=[]});d.savedAt=Date.now();delete d._pristine;S=d;try{localStorage.removeItem('widemp_pm_base')}catch(e){}PID=(S.projects[0]||{}).id||'';lsSet('widemp_pid',PID);ov.remove();save(S.projects.length+' proyek dipulihkan')}catch(e){toast('Format data tidak valid — pastikan seluruh teks tersalin')}};
+  ov.querySelector('#bkGo').onclick=()=>{try{const d=JSON.parse(ov.querySelector('#bkT').value.trim());if(!d.v||!Array.isArray(d.projects))throw 0;COLS.forEach(k=>{if(!Array.isArray(d[k]))d[k]=[]});d.savedAt=Date.now();delete d._pristine;d.projects.forEach(p=>{if(p.progAt==null&&(p.status==='Selesai'||(p.phases||[]).some(f=>+f.progress>0)))p.progAt=Date.now()});d._replace=true;S=d;lsSet('wp_mig_hide','1');try{localStorage.removeItem('widemp_pm_base')}catch(e){}PID=(S.projects[0]||{}).id||'';lsSet('widemp_pid',PID);ov.remove();save(S.projects.length+' proyek dipulihkan')}catch(e){toast('Format data tidak valid — pastikan seluruh teks tersalin')}};
 }
 function memForm(m){const isNew=!m;
   openForm({title:isNew?'Anggota tim':'Edit anggota',values:m||{role:'Desainer',cap:40,rate:50000},fields:[{k:'name',label:'Nama',req:1},{k:'role',label:'Peran',type:'select',options:ROLES},{k:'rate',label:'Tarif per jam (Rp)',type:'number',half:1,hint:'untuk hitung profitabilitas'},{k:'cap',label:'Kapasitas jam/minggu',type:'number',half:1}],
   onDelete:isNew||S.team.length<2?null:()=>{S.team=S.team.filter(x=>x!==m);save('Anggota dihapus')},
   onSubmit:v=>{if(isNew)S.team.push(Object.assign({id:'m'+uid()},v));else Object.assign(m,v);save('Tim diperbarui')}})}
 
-window.WP={newProject:()=>newProject(),sync:()=>syncNow(true),restore:()=>restoreForm()};
+window.WP={newProject:()=>newProject(),sync:()=>syncNow(true),restore:()=>restoreForm(),hideMig:()=>{lsSet('wp_mig_hide','1');render()}};
 render();
 {const sy=$('#sync');sy.style.cursor='pointer';sy.title='Ketuk untuk sinkron';sy.onclick=()=>syncNow(true);}
 setSync('off',clientId()?(lastSync?'Menyambungkan…':'Ketuk untuk menyambungkan Google Drive'):'Atur Google Drive di aplikasi keuangan');
