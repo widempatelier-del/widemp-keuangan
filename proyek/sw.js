@@ -1,6 +1,6 @@
 /* Service worker Pemantau Proyek: aplikasi tetap terbuka tanpa internet */
-const CACHE = 'widemp-proyek-v5';
-const SHELL = ['./', 'index.html', 'manifest.json', '../icon.svg', '../icon-180.png', '../icon-192.png', '../icon-512.png'];
+const CACHE = 'widemp-proyek-v6';
+const SHELL = ['./', 'index.html', 'manifest.json', '../icon.svg', '../icon-180.png', '../icon-192.png', '../icon-512.png', '../pdf-assets.js', '../pdf.js', '../assets/montserrat-R.ttf', '../assets/montserrat-M.ttf', '../assets/montserrat-B.ttf', '../assets/montserrat-I.ttf'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
