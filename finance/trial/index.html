@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f1eee9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Widemp Finance">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>WIDEMP FINANCE — Trial</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#" data-act="go-dash"><img src="assets/logo-mark.png" alt=""><span class="div"></span><span class="wm"><b id="biz">WIDEMP FINANCE</b><small>Keuangan proyek arsitek &amp; kontraktor</small></span></a>
+    <nav class="tabs" id="tabs">
+      <button data-tab="dash" class="on"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zM14 20h6V4h-6zM4 20h6v-3H4z"/></svg>Ringkasan</button>
+      <button data-tab="proj"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>Proyek</button>
+      <button data-tab="doc"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5"/></svg>Invoice</button>
+      <button data-tab="cash"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3zM12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/></svg>Kas</button>
+      <button data-tab="data"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19 12l2-1-2-4-2 .5-1.5-1L15 4H9l-.5 2.5-1.5 1L5 7 3 11l2 1v1l-2 1 2 4 2-.5 1.5 1L9 20h6l.5-2.5 1.5-1 2 .5 2-4-2-1z"/></svg>Pengaturan</button>
+    </nav>
+    <div class="me"><span class="st" id="syncText">Belum terhubung</span><button class="avatar" id="syncPill" type="button" title="Sinkron">WA<i></i></button></div>
+  </div>
+</header>
+<main id="view"></main>
+<dialog class="sheet" id="sheet"></dialog>
+<div class="toast" id="toast" hidden></div>
+<script src="trial.js"></script>
+<script src="core.js"></script>
+<script src="sync.js"></script>
+<script src="pdf-assets.js"></script>
+<script src="pdf.js"></script>
+<script src="laporan-pdf.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

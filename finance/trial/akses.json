@@ -1,0 +1,12 @@
+{
+  "cara_pakai": "Tiap kode trial disimpan sebagai sidik (hash), jadi kodenya tidak terlihat di sini. Ubah aktif menjadi false untuk mematikan satu kode, atau ubah aktif_sampai (2026-12-09 = sampai akhir tanggal itu, 2026-12-09T17:00 = sampai jam itu WIB). Kode baru dibuatkan oleh Claude.",
+  "pesan_berakhir": "Terima kasih sudah mencoba WIDEMP FINANCE. Data Anda tetap aman di Google Drive akun Anda dan bisa dilanjutkan di versi lengkap.",
+  "kode": {
+    "b90babd8a19ebb3dab01a7a8019c3eccf21668738117158f53184aefa5fcb22a": {
+      "nama": "Kantor lama (trial 5 hari kerja)",
+      "aktif": true,
+      "aktif_sampai": "2026-12-02",
+      "dibuat": "2026-11-25"
+    }
+  }
+}
