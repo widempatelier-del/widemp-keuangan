@@ -1,12 +1,19 @@
 /* Saklar jarak jauh situs demo WIDEMP FINANCE.
-   Membaca status.json: { "aktif": true/false, "aktif_sampai": "YYYY-MM-DD", "pesan": "..." } */
+   Membaca status.json: { "aktif": true/false, "aktif_sampai": "YYYY-MM-DD" atau "YYYY-MM-DDTHH:MM" (WIB), "pesan": "..." } */
 (function () {
   'use strict';
   const me = document.currentScript, BASE = (me && me.dataset.base) || '';
   const KEY = 'wfd_gate', WA = '6282251613598';
-  const pad = (n) => String(n).padStart(2, '0');
-  const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-  const isOff = (c) => !!c && (c.aktif === false || (typeof c.aktif_sampai === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.aktif_sampai) && today() > c.aktif_sampai));
+  // aktif_sampai: "2026-12-31" (tutup setelah tanggal itu) atau "2026-11-25T14:30" (tutup pada jam itu), waktu WIB
+  function deadline(c) {
+    const v = c && typeof c.aktif_sampai === 'string' ? c.aktif_sampai.trim() : '';
+    let m = v.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})$/);
+    if (m) return new Date(`${m[1]}T${m[2]}:${m[3]}:00+07:00`).getTime();
+    m = v.match(/^(\d{4}-\d{2}-\d{2})$/);
+    if (m) return new Date(`${m[1]}T00:00:00+07:00`).getTime() + 86400000;
+    return null;
+  }
+  const isOff = (c) => { if (!c) return false; if (c.aktif === false) return true; const d = deadline(c); return d != null && Date.now() >= d; };
   const esc = (s) => String(s || '').replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[x]));
 
   let box = null;
@@ -27,7 +34,13 @@
     document.documentElement.style.overflow = 'hidden';
   }
   function hide() { if (box) { box.remove(); box = null; } document.documentElement.style.overflow = ''; }
-  function apply(c) { if (isOff(c)) show(c); else hide(); }
+  let timer = null;
+  function apply(c) {
+    if (isOff(c)) show(c); else hide();
+    // tutup tepat pada jamnya walau halaman sedang terbuka
+    clearTimeout(timer); const d = deadline(c);
+    if (d != null && Date.now() < d && d - Date.now() < 2147483000) timer = setTimeout(() => apply(c), d - Date.now() + 500);
+  }
 
   // pakai status terakhir dulu supaya tidak sempat terlihat, lalu periksa yang terbaru
   try { apply(JSON.parse(localStorage.getItem(KEY))); } catch (e) { /* abaikan */ }
