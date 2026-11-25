@@ -334,7 +334,7 @@
       <select id="fProj" aria-label="Proyek"><option value="">Semua proyek</option><option value="-" ${ui.proj === '-' ? 'selected' : ''}>Tanpa proyek (kantor)</option>${of('project').map((p) => opt(p.id, p.name, ui.proj === p.id)).join('')}</select>
       <input type="search" id="fQ" placeholder="Cari…" value="${esc(ui.q)}">
     </div>
-    <div class="actions" style="margin-top:0"><button class="btn primary" data-act="daily">+ Catat transaksi harian</button></div>
+    <div class="actions" style="margin-top:0"><button class="btn primary" data-act="daily">+ Catat transaksi harian</button><button class="btn" data-act="cash-report">Cetak laporan kas</button></div>
     <div class="grid"><div class="stat"><div class="l">Masuk</div><div class="v in">${rp(inn)}</div></div><div class="stat"><div class="l">Keluar</div><div class="v out">${rp(out)}</div></div></div>
     <div style="margin-top:12px">${txs.length ? dayGroups(txs) : '<div class="card empty">Tidak ada transaksi pada filter ini.</div>'}</div>
     <div class="muted" style="font-size:12px;margin-bottom:16px">Akun bertanda “pribadi” atau “arsip” tidak dihitung di total dan saldo.</div>
@@ -671,6 +671,7 @@
       case 'rm-dayrow': if (sheet.querySelectorAll('.dayrow').length > 1) { el.closest('.dayrow').remove(); updDayTotal(); } break;
       case 'report': reportSheet('one', id); break;
       case 'report-all': reportSheet('all'); break;
+      case 'cash-report': cashReportSheet(); break;
       case 'rep-dl': case 'rep-print': case 'rep-share': case 'rep-drive': reportAction(a, el); break;
       case 'new-liab': liabForm(null); break;
       case 'edit-liab': liabForm(byId(id)); break;
@@ -698,6 +699,7 @@
     else if (t.id === 'fMonth') { ui.month = t.value; render(); }
     else if (t.id === 'fKind') { ui.kind = t.value; render(); }
     else if (t.id === 'fProj') { ui.proj = t.value; render(); }
+    else if (t.closest && t.closest('#cashRep')) updCashPrev();
     else if (t.matches && t.matches('.dayrow [name=d_cat]')) t.dataset.touched = '1';
     else if (t.matches && t.matches('.dayrow [name=d_kind], .dayrow [name=d_proj]')) refreshDayRow(t.closest('.dayrow'));
     else if (t.id === 'fImport') importJson(t.files[0]);
@@ -891,6 +893,56 @@
     rows.forEach(({ summary: s }) => { for (const k in tot) tot[k] += s[k]; });
     return { rows, tot };
   }
+  /* periode laporan kas: minggu (Senin–Minggu) atau bulan */
+  function periodOf(kind, from, to) {
+    const t = new Date(C.isoDate() + 'T00:00:00'), iso = C.isoDate;
+    const mon = new Date(t); mon.setDate(t.getDate() - ((t.getDay() + 6) % 7));
+    const addD = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+    if (kind === 'w0') return { start: iso(mon), end: iso(addD(mon, 6)), label: 'Minggu ini' };
+    if (kind === 'w1') { const m = addD(mon, -7); return { start: iso(m), end: iso(addD(m, 6)), label: 'Minggu lalu' }; }
+    if (kind === 'm0') { const a = new Date(t.getFullYear(), t.getMonth(), 1), b = new Date(t.getFullYear(), t.getMonth() + 1, 0); return { start: iso(a), end: iso(b), label: C.BULAN_PANJANG[a.getMonth()] + ' ' + a.getFullYear() }; }
+    if (kind === 'm1') { const a = new Date(t.getFullYear(), t.getMonth() - 1, 1), b = new Date(t.getFullYear(), t.getMonth(), 0); return { start: iso(a), end: iso(b), label: C.BULAN_PANJANG[a.getMonth()] + ' ' + a.getFullYear() }; }
+    if (kind === 'mm' && from) { const [y, m] = from.split('-').map(Number); const a = new Date(y, m - 1, 1), b = new Date(y, m, 0); return { start: iso(a), end: iso(b), label: C.BULAN_PANJANG[m - 1] + ' ' + y }; }
+    if (kind === 'cr' && from && to) return from <= to ? { start: from, end: to, label: 'Periode pilihan' } : { start: to, end: from, label: 'Periode pilihan' };
+    return null;
+  }
+  function cashData(r) {
+    const accounts = of('account'), all = of('tx');
+    const prevDay = (() => { const x = new Date(r.start + 'T00:00:00'); x.setDate(x.getDate() - 1); return C.isoDate(x); })();
+    const txs = C.usahaTxs(accounts, all).filter((t) => t.date >= r.start && t.date <= r.end)
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.updatedAt || 0) - (b.updatedAt || 0))
+      .map((t) => Object.assign({}, t, { projectName: projName(t.projectId) }));
+    const group = (kind) => { const m = new Map(); txs.filter((t) => t.kind === kind).forEach((t) => m.set(t.category || 'Lainnya', (m.get(t.category || 'Lainnya') || 0) + t.amount)); return [...m].sort((a, b) => b[1] - a[1]); };
+    const pm = new Map();
+    txs.forEach((t) => { const k = t.projectName || 'Kantor / umum'; const v = pm.get(k) || { name: k, in: 0, out: 0 }; v[t.kind] += t.amount; pm.set(k, v); });
+    return Object.assign({}, r, { opening: C.balanceAt(accounts, all, prevDay), closing: C.balanceAt(accounts, all, r.end), txs, catIn: group('in'), catOut: group('out'),
+      byProject: [...pm.values()].sort((a, b) => (b.in + b.out) - (a.in + a.out)), printedAt: C.isoDate() });
+  }
+  function cashReportSheet() {
+    const canShare = !!(navigator.canShare && navigator.share);
+    const btns = ['rep-dl:Unduh PDF:primary', 'rep-print:Buka / cetak:'].concat(canShare ? ['rep-share:Bagikan:'] : []).concat(DS.isConnected() ? ['rep-drive:Simpan ke Drive:'] : []);
+    openSheet(`<form data-form="view" id="cashRep">${head('Laporan kas')}
+      <div class="muted s">Pemasukan dan pengeluaran usaha dalam satu periode: saldo awal–akhir, per kategori, per proyek, dan rincian transaksi.</div>
+      <label>Periode</label><select name="per" id="cashPer">${[['w0', 'Minggu ini'], ['w1', 'Minggu lalu'], ['m0', 'Bulan ini'], ['m1', 'Bulan lalu'], ['mm', 'Pilih bulan…'], ['cr', 'Pilih tanggal…']].map(([k, l]) => opt(k, l, k === (ui.cashPer || 'm0'))).join('')}</select>
+      <div id="cashMonth" hidden><label>Bulan</label><input type="month" name="month" value="${C.monthKey(C.isoDate())}"></div>
+      <div id="cashRange" class="cols" hidden><div><label>Dari</label><input type="date" name="from" value="${C.isoDate()}"></div><div><label>Sampai</label><input type="date" name="to" value="${C.isoDate()}"></div></div>
+      <div class="s" id="cashPrev" style="margin-top:8px"></div>
+      <div class="actions" style="margin-top:14px">${btns.map((b) => { const [a, l, c] = b.split(':'); return `<button class="btn ${c}" type="button" data-act="${a}" data-kind="cash">${l}</button>`; }).join('')}</div>
+      <div class="actions"><button class="btn sm" type="button" data-act="close">Tutup</button></div></form>`);
+    updCashPrev();
+  }
+  function cashRange() {
+    const f = $('#cashRep'); if (!f) return null;
+    return periodOf(f.per.value, f.per.value === 'mm' ? f.month.value : f.from.value, f.to.value);
+  }
+  function updCashPrev() {
+    const f = $('#cashRep'); if (!f) return;
+    ui.cashPer = f.per.value;
+    $('#cashMonth').hidden = f.per.value !== 'mm'; $('#cashRange').hidden = f.per.value !== 'cr';
+    const r = cashRange(), el = $('#cashPrev'); if (!r) { el.textContent = ''; return; }
+    const dt = cashData(r), i = dt.txs.filter((t) => t.kind === 'in').reduce((a, t) => a + t.amount, 0), o = dt.txs.filter((t) => t.kind === 'out').reduce((a, t) => a + t.amount, 0);
+    el.innerHTML = `${fmtDate(r.start)} – ${fmtDate(r.end)} · ${dt.txs.length} transaksi · <span class="in">masuk ${rp(i)}</span> · <span class="out">keluar ${rp(o)}</span>`;
+  }
   const slug = (x) => String(x || '').replace(/[^\w\s.-]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50);
   function reportSheet(kind, id) {
     const p = id ? byId(id) : null;
@@ -911,7 +963,8 @@
     const label = el.textContent; el.disabled = true; el.textContent = 'Menyiapkan…';
     try {
       let blob, name;
-      if (kind === 'one') { blob = await window.LaporanPDF.project(reportData(p), bizInfo(), PDFF); name = `Laporan_${slug(p.name)}_${C.isoDate()}.pdf`; }
+      if (kind === 'cash') { const r = cashRange(); if (!r) throw new Error('Pilih periode dulu'); const dt = cashData(r); blob = await window.LaporanPDF.cashflow(dt, bizInfo(), PDFF); name = `Laporan_Kas_${r.start}_sd_${r.end}.pdf`; }
+      else if (kind === 'one') { blob = await window.LaporanPDF.project(reportData(p), bizInfo(), PDFF); name = `Laporan_${slug(p.name)}_${C.isoDate()}.pdf`; }
       else { const r = allReport(); blob = await window.LaporanPDF.allProjects(r.rows, r.tot, bizInfo(), PDFF, C.isoDate()); name = `Rekap_Keuangan_Proyek_${C.isoDate()}.pdf`; }
       const url = URL.createObjectURL(blob);
       if (a === 'rep-dl') { const l = document.createElement('a'); l.href = url; l.download = name; document.body.appendChild(l); l.click(); l.remove(); }
