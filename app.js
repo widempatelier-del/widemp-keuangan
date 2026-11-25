@@ -32,6 +32,11 @@
     const rec = Object.assign({}, data, { id: data.id || C.uid(), type, updatedAt: Date.now() });
     R.set(rec.id, rec); await idbPut([rec]); queueSync(); return rec;
   }
+  async function saveMany(list) {
+    const now = Date.now();
+    const recs = list.map(([type, data], i) => Object.assign({}, data, { id: data.id || C.uid(), type, updatedAt: now + i }));
+    recs.forEach((r) => R.set(r.id, r)); await idbPut(recs); queueSync(); return recs;
+  }
   async function del(id) {
     const rec = Object.assign({}, R.get(id), { deleted: true, updatedAt: Date.now() });
     R.set(id, rec); await idbPut([rec]); queueSync();
@@ -525,10 +530,10 @@
     })).filter((r) => r.amount > 0);
     if (!rows.length) { toast('Isi jumlah minimal satu baris'); return false; }
     const date = f.date.value, accountId = f.accountId.value;
-    for (const r of rows) {
-      await save('tx', { kind: r.kind, date, amount: r.amount, category: r.category, accountId, projectId: r.projectId, termId: r.kind === 'in' && r.projectId ? r.termId : '', liabilityId: '', note: r.note });
-      if (r.kind === 'in' && r.termId) await markBilled(r.termId);
-    }
+    const list = rows.map((r) => ['tx', { kind: r.kind, date, amount: r.amount, category: r.category, accountId, projectId: r.projectId, termId: r.kind === 'in' && r.projectId ? r.termId : '', liabilityId: '', note: r.note }]);
+    const billed = new Set(rows.filter((r) => r.kind === 'in' && r.termId).map((r) => r.termId));
+    billed.forEach((tid) => { const t = byId(tid); if (t && !t.billed) list.push(['term', Object.assign({}, t, { billed: true, billedDate: C.isoDate() })]); });
+    await saveMany(list);
     const lp = rows[rows.length - 1].projectId; try { localStorage.setItem('wk_last_proj', lp); } catch (e) { /* abaikan */ }
     return rows.length;
   }
@@ -1037,13 +1042,15 @@
     p.className = 'avatar ' + (s.kind || ''); p.title = s.text; $('#syncText').textContent = s.text;
     p.firstChild.textContent = (cfg().businessName || 'WA').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   }
+  let syncAgain = false;
   async function runSync(interactive) {
-    if (syncing || !DS.isConnected()) return;
+    if (!DS.isConnected()) return;
+    if (syncing) { syncAgain = true; return; }
     if (!navigator.onLine) { syncState = { kind: '', text: 'Offline · tersimpan lokal' }; return paintSync(); }
     syncing = true; syncState = { kind: 'busy', text: 'Menyinkron…' }; paintSync();
     const startedAt = Date.now();
     try {
-      await DS.sync(all, applyMerged, interactive);
+      await DS.sync(all, applyMerged, interactive, { dirty: !!dirtyAt() });
       if (dirtyAt() && dirtyAt() <= startedAt) localStorage.removeItem(DIRTY);
       syncState = { kind: 'ok', text: 'Tersinkron ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) };
       if (interactive) toast('Sinkron selesai');
@@ -1051,18 +1058,18 @@
       console.warn('sync', err);
       syncState = { kind: 'err', text: /login|Izin/i.test(err.message) ? 'Ketuk untuk sinkron' : 'Gagal sinkron' };
       if (interactive) toast(err.message);
-    } finally { syncing = false; paintSync(); paintPending(); if (ui.tab === 'set' || (ui.tab === 'data' && ui.dataSeg === 'set')) render(); }
+    } finally { syncing = false; paintSync(); paintPending(); if (syncAgain) { syncAgain = false; setTimeout(() => runSync(false), 50); } if (ui.tab === 'set' || (ui.tab === 'data' && ui.dataSeg === 'set')) render(); }
   }
   const DIRTY = 'wk_dirty_at';
   const dirtyAt = () => Number(localStorage.getItem(DIRTY)) || 0;
   function queueSync() {
     if (!DS.isConnected()) return;
     try { localStorage.setItem(DIRTY, String(Date.now())); } catch (e) { /* abaikan */ }
-    clearTimeout(syncTimer); syncTimer = setTimeout(() => runSync(false), 1500);
+    clearTimeout(syncTimer); syncState = { kind: 'busy', text: 'Menyimpan…' }; paintSync(); syncTimer = setTimeout(() => runSync(false), 250);
   }
   // ketukan pengguna = kesempatan memperbarui login tanpa jendela tambahan
   document.addEventListener('pointerdown', () => { if (DS.isConnected() && !DS.hasToken() && navigator.onLine) DS.refreshToken().then(() => { if (dirtyAt()) runSync(false); }).catch(() => {}); }, true);
-  setInterval(() => { if (!document.hidden && DS.isConnected() && DS.hasToken() && navigator.onLine) runSync(false); }, 45000);
+  setInterval(() => { if (!document.hidden && DS.isConnected() && DS.hasToken() && navigator.onLine) runSync(false); }, 20000);
   async function driveConnect() {
     const id = ($('#sClient') && $('#sClient').value.trim()) || '';
     if (id) localStorage.setItem(DS.K.client, id);

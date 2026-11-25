@@ -104,7 +104,7 @@
     return data;
   }
   const upload = (fileId, payload) =>
-    api(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+    api(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=version`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
 
@@ -113,26 +113,49 @@
     LS.setItem(K.on, '1');
   }
   function disconnect() {
-    [K.on, K.folder, K.file, K.last].forEach((k) => LS.removeItem(k));
+    [K.on, K.folder, K.file, K.last, VER].forEach((k) => LS.removeItem(k));
     Object.keys(LS).filter((k) => k.startsWith('wk_dir_')).forEach((k) => LS.removeItem(k));
     token = null; tokenExp = 0; keepToken();
   }
 
   /** getLocal(): array record; applyMerged(array): simpan hasil gabungan ke lokal */
-  async function sync(getLocal, applyMerged, interactive) {
-    await getToken(!!interactive);
+  // ID folder & file disimpan; tidak dicek ulang tiap sinkron (hemat 2 permintaan). Bila file hilang, dicari ulang.
+  async function dataFileId() {
+    const f = LS.getItem(K.file);
+    if (f && LS.getItem(K.folder)) return f;
     const folderId = await ensure(FOLDER_NAME, 'application/vnd.google-apps.folder', null, K.folder);
-    const fileId = await ensure(FILE_NAME, 'application/json', folderId, K.file);
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const v1 = (await j(`${D}/${fileId}?fields=version`)).version;
-      const remote = await download(fileId);
+    return ensure(FILE_NAME, 'application/json', folderId, K.file);
+  }
+  const VER = 'wk_remote_ver';
+
+  /** getLocal(): array record; applyMerged(array); opts.dirty: ada perubahan lokal yang belum terkirim */
+  async function sync(getLocal, applyMerged, interactive, opts = {}) {
+    await getToken(!!interactive);
+    let fileId = await dataFileId();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      let v1, remote;
+      try {
+        if (!opts.dirty) {
+          // tidak ada perubahan lokal: cukup cek versi; unduh hanya bila perangkat lain mengubah data
+          v1 = (await j(`${D}/${fileId}?fields=version,trashed`)).version;
+          if (v1 && v1 === LS.getItem(VER)) { LS.setItem(K.last, String(Date.now())); return { toLocal: 0, toRemote: 0, skipped: true }; }
+          remote = await download(fileId);
+        } else {
+          const [meta, data] = await Promise.all([j(`${D}/${fileId}?fields=version`), download(fileId)]);
+          v1 = meta.version; remote = data;
+        }
+      } catch (e) {
+        if (e.status === 404 && attempt === 0) { LS.removeItem(K.file); LS.removeItem(K.folder); LS.removeItem(VER); fileId = await dataFileId(); continue; }
+        throw e;
+      }
       const m = window.Core.mergeRecords(getLocal(), remote.records || []);
       if (m.toLocal) await applyMerged(m.records);
       if (m.toRemote || !(remote.records || []).length) {
         const v2 = (await j(`${D}/${fileId}?fields=version`)).version;
-        if (v2 !== v1) continue; // ada perangkat lain menulis saat kita menggabung: ulangi
-        await upload(fileId, { app: 'widemp-keuangan', schema: SCHEMA, savedAt: Date.now(), records: m.records });
-      }
+        if (v2 !== v1) { opts = Object.assign({}, opts, { dirty: true }); continue; } // perangkat lain menulis bersamaan: ulangi
+        const res = await upload(fileId, { app: 'widemp-keuangan', schema: SCHEMA, savedAt: Date.now(), records: m.records });
+        try { const nv = (await res.json()).version; if (nv) LS.setItem(VER, String(nv)); else LS.removeItem(VER); } catch (e) { LS.removeItem(VER); }
+      } else LS.setItem(VER, String(v1));
       LS.setItem(K.last, String(Date.now()));
       return { toLocal: m.toLocal, toRemote: m.toRemote };
     }
