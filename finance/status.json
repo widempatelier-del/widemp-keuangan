@@ -1,0 +1,6 @@
+{
+  "aktif": true,
+  "aktif_sampai": "",
+  "pesan": "Demo sedang ditutup sementara. Hubungi kami lewat WhatsApp untuk mencoba atau membeli WIDEMP FINANCE.",
+  "cara_pakai": "aktif: true = demo dibuka, false = demo ditutup. aktif_sampai: isi tanggal (contoh 2026-12-31) agar demo tertutup otomatis setelah tanggal itu, atau kosongkan. pesan: teks yang tampil saat demo ditutup."
+}
