@@ -1,6 +1,6 @@
 /* Service worker: aplikasi tetap terbuka tanpa internet */
-const CACHE = 'widemp-v12';
-const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'sync.js', 'pdf-assets.js', 'pdf.js', 'studio-core.js', 'studio-pdf.js', 'studio.js', 'app.js', 'assets/montserrat-R.ttf', 'assets/montserrat-M.ttf', 'assets/montserrat-B.ttf', 'assets/montserrat-I.ttf', 'assets/logo-mark.png', 'assets/logo.png', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'widemp-v13';
+const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'sync.js', 'pdf-assets.js', 'pdf.js', 'laporan-pdf.js', 'studio-core.js', 'studio-pdf.js', 'studio.js', 'app.js', 'assets/montserrat-R.ttf', 'assets/montserrat-M.ttf', 'assets/montserrat-B.ttf', 'assets/montserrat-I.ttf', 'assets/logo-mark.png', 'assets/logo.png', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));

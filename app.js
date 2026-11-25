@@ -248,7 +248,7 @@
   function vProjects() {
     const projects = of('project').sort((a, b) => (STORD[a.status] ?? 9) - (STORD[b.status] ?? 9) || (b.createdAt || 0) - (a.createdAt || 0));
     const terms = of('term'), txs = of('tx'), today = C.isoDate();
-    return `<h2>Proyek</h2>` + (projects.length ? billingCards().replace('margin-top:16px', 'margin:0 0 16px') : '') + (projects.length ? projects.map((p) => {
+    return `<div class="panel-h" style="margin:4px 0 10px"><h3 style="font-size:16px">Proyek</h3>${projects.length ? '<button class="btn sm" data-act="report-all">Rekap semua proyek (PDF)</button>' : ''}</div>` + (projects.length ? billingCards().replace('margin-top:16px', 'margin:0 0 16px') : '') + (projects.length ? projects.map((p) => {
       const s = C.projectSummary(p, terms.filter((t) => t.projectId === p.id), txs);
       const next = s.sched.find((t) => t.remaining > 0);
       const pct = s.contract ? Math.min(100, Math.round((s.received / s.contract) * 100)) : 0;
@@ -270,7 +270,7 @@
     const ptx = allTx.filter((t) => t.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
     const pctSum = s.sched.reduce((x, t) => x + (Number(t.percent) || 0), 0);
     return `
-    <div class="actions" style="margin-top:0"><button class="btn sm" data-act="back">← Proyek</button><button class="btn sm" data-act="edit-project" data-id="${p.id}">Ubah</button></div>
+    <div class="actions" style="margin-top:0"><button class="btn sm" data-act="back">← Proyek</button><button class="btn sm" data-act="edit-project" data-id="${p.id}">Ubah</button><button class="btn sm primary" data-act="report" data-id="${p.id}">Laporan PDF</button></div>
     <h2 style="margin-top:0">${esc(p.name)} <span class="badge">${esc(p.status)}</span></h2>
     <div class="muted" style="margin-bottom:10px">${esc(p.client || 'Tanpa klien')}${p.service ? ' · ' + esc(p.service) : ''}${p.note ? ' · ' + esc(p.note) : ''}</div>
     ${window.Studio ? window.Studio.projectLinks(p) : ''}
@@ -669,6 +669,9 @@
       case 'daily': dailyForm({ projectId: el.dataset.project, kind: el.dataset.kind }); break;
       case 'add-dayrow': { const rows = $('#dayRows'), last = rows.lastElementChild; rows.insertAdjacentHTML('beforeend', dayRow(last ? { kind: last.querySelector('[name=d_kind]').value, projectId: last.querySelector('[name=d_proj]').value } : {})); refreshDayRow(rows.lastElementChild); rows.lastElementChild.querySelector('[name=d_amt]').focus(); break; }
       case 'rm-dayrow': if (sheet.querySelectorAll('.dayrow').length > 1) { el.closest('.dayrow').remove(); updDayTotal(); } break;
+      case 'report': reportSheet('one', id); break;
+      case 'report-all': reportSheet('all'); break;
+      case 'rep-dl': case 'rep-print': case 'rep-share': case 'rep-drive': reportAction(a, el); break;
       case 'new-liab': liabForm(null); break;
       case 'edit-liab': liabForm(byId(id)); break;
       case 'del-liab': if (of('tx').some((t) => t.liabilityId === id) && !confirm('Kewajiban ini punya pembayaran tercatat. Pembayarannya tetap ada sebagai pengeluaran. Hapus?')) return; if (confirm('Hapus kewajiban ini?')) { await del(id); closeSheet(); render(); } break;
@@ -867,6 +870,60 @@
       <div class="actions"><button class="btn sm" type="button" data-act="edit-doc" data-id="${r.id}">Ubah</button><button class="btn sm danger" type="button" data-act="del-doc" data-id="${r.id}">Hapus</button><button class="btn sm" type="button" data-act="close">Tutup</button></div>
       ${r.driveSaved ? `<div class="s muted">Tersimpan di Drive: ${new Date(r.driveSaved).toLocaleString('id-ID')}</div>` : ''}</form>`);
   }
+  /* ---------- Laporan PDF ---------- */
+  const termStatus = (t, today) => (t.remaining <= 0 && t.amount > 0 ? 'Lunas' : t.billed ? (t.dueDate && t.dueDate < today ? 'Terlambat' : 'Ditagih') : 'Belum ditagih');
+  function reportData(p) {
+    const terms = of('term').filter((t) => t.projectId === p.id), txsAll = of('tx'), today = C.isoDate();
+    const summary = C.projectSummary(p, terms, txsAll);
+    const txs = txsAll.filter((t) => t.projectId === p.id).sort((a, b) => a.date.localeCompare(b.date))
+      .map((t) => Object.assign({}, t, { termLabel: t.termId && byId(t.termId) ? byId(t.termId).label : '' }));
+    const cat = new Map(); txs.filter((t) => t.kind === 'out').forEach((t) => cat.set(t.category || 'Lainnya', (cat.get(t.category || 'Lainnya') || 0) + t.amount));
+    const docs = of('invoice').filter((x) => x.projectId === p.id).map((x) => ({ kind: 'Invoice', number: x.number, date: x.date, desc: x.termId && byId(x.termId) ? byId(x.termId).label : '', amount: C.invoiceTotals(x).total }))
+      .concat(of('receipt').filter((x) => x.projectId === p.id).map((x) => ({ kind: 'Kwitansi', number: x.number, date: x.date, desc: x.desc, amount: x.amount })))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    return { project: p, summary, terms: summary.sched.map((t) => Object.assign({}, t, { status: termStatus(t, today) })), txs, docs, catTotals: [...cat].sort((a, b) => b[1] - a[1]), printedAt: today };
+  }
+  function allReport() {
+    const terms = of('term'), txs = of('tx');
+    const rows = of('project').filter((p) => p.status !== 'batal').sort((a, b) => (STORD[a.status] ?? 9) - (STORD[b.status] ?? 9) || a.name.localeCompare(b.name))
+      .map((p) => ({ project: p, summary: C.projectSummary(p, terms.filter((t) => t.projectId === p.id), txs) }));
+    const tot = { contract: 0, received: 0, remaining: 0, expense: 0, profit: 0 };
+    rows.forEach(({ summary: s }) => { for (const k in tot) tot[k] += s[k]; });
+    return { rows, tot };
+  }
+  const slug = (x) => String(x || '').replace(/[^\w\s.-]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50);
+  function reportSheet(kind, id) {
+    const p = id ? byId(id) : null;
+    const title = p ? 'Laporan ' + p.name : 'Rekap semua proyek';
+    const canShare = !!(navigator.canShare && navigator.share);
+    openSheet(`<form data-form="view">${head(esc(title))}
+      <div class="muted s">${p ? 'Ringkasan keuangan, termin, semua transaksi, biaya per kategori, dan dokumen proyek ini.' : 'Nilai kontrak, pembayaran, sisa tagihan, biaya, dan laba semua proyek dalam satu tabel.'}</div>
+      <div class="actions" style="margin-top:14px">
+        <button class="btn primary" type="button" data-act="rep-dl" data-kind="${kind}" data-id="${id || ''}">Unduh PDF</button>
+        <button class="btn" type="button" data-act="rep-print" data-kind="${kind}" data-id="${id || ''}">Buka / cetak</button>
+        ${canShare ? `<button class="btn" type="button" data-act="rep-share" data-kind="${kind}" data-id="${id || ''}">Bagikan</button>` : ''}
+        ${DS.isConnected() ? `<button class="btn" type="button" data-act="rep-drive" data-kind="${kind}" data-id="${id || ''}">Simpan ke Drive</button>` : ''}</div>
+      <div class="actions"><button class="btn sm" type="button" data-act="close">Tutup</button></div></form>`);
+  }
+  async function reportAction(a, el) {
+    const kind = el.dataset.kind, p = el.dataset.id ? byId(el.dataset.id) : null;
+    const printWin = a === 'rep-print' ? window.open('', '_blank') : null; // dibuka langsung saat diketuk agar tidak diblokir
+    const label = el.textContent; el.disabled = true; el.textContent = 'Menyiapkan…';
+    try {
+      let blob, name;
+      if (kind === 'one') { blob = await window.LaporanPDF.project(reportData(p), bizInfo(), PDFF); name = `Laporan_${slug(p.name)}_${C.isoDate()}.pdf`; }
+      else { const r = allReport(); blob = await window.LaporanPDF.allProjects(r.rows, r.tot, bizInfo(), PDFF, C.isoDate()); name = `Rekap_Keuangan_Proyek_${C.isoDate()}.pdf`; }
+      const url = URL.createObjectURL(blob);
+      if (a === 'rep-dl') { const l = document.createElement('a'); l.href = url; l.download = name; document.body.appendChild(l); l.click(); l.remove(); }
+      else if (a === 'rep-print') { if (printWin) printWin.location.href = url; else window.location.href = url; }
+      else if (a === 'rep-share') { const file = new File([blob], name, { type: 'application/pdf' }); if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: name }); else toast('Perangkat ini tidak mendukung berbagi file'); }
+      else if (a === 'rep-drive') { if (!navigator.onLine) throw new Error('Sedang offline'); await DS.uploadFile('Laporan', name, blob); toast('Tersimpan di Drive: Widemp Atelier/Laporan'); }
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch (err) {
+      if (printWin) printWin.close();
+      if (!(err && err.name === 'AbortError')) { console.error(err); toast('Gagal: ' + err.message); }
+    } finally { el.disabled = false; el.textContent = label; }
+  }
   const pdfName = (r) => `${r.type === 'invoice' ? 'Invoice' : 'Kwitansi'}_${r.number.replace(/[\\/:*?"<>|]+/g, '-')}_${(r.type === 'invoice' ? r.billTo : r.from || '').replace(/[^\w\s.-]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40)}.pdf`;
   const makePdf = (r) => (r.type === 'invoice' ? window.WidempPDF.invoice(r, bizInfo(), PDFF) : window.WidempPDF.receipt(r, bizInfo(), PDFF));
   async function pdfAction(a, r, btn) {
@@ -912,6 +969,14 @@
 
   /* ---------------- Sinkron Drive ---------------- */
   let syncing = false, syncState = { kind: '', text: 'Siap sinkron' }, syncTimer = null;
+  function paintPending() {
+    let b = $('#pendingBar');
+    const show = DS.isConnected() && dirtyAt() && syncState.kind === 'err';
+    if (!show) { if (b) b.remove(); return; }
+    if (!b) { b = document.createElement('div'); b.id = 'pendingBar'; b.className = 'note'; b.style.cssText = 'max-width:1240px;margin:10px auto 0;display:flex;gap:10px;align-items:center;justify-content:space-between'; document.querySelector('header.top').after(b); }
+    b.innerHTML = '<span>Ada perubahan yang belum terkirim ke perangkat lain.</span><button class="btn sm primary" type="button" id="pendingBtn">Sinkron sekarang</button>';
+    $('#pendingBtn').onclick = () => runSync(true);
+  }
   function paintSync() {
     const p = $('#syncPill'); if (!p) return;
     let s = syncState;
@@ -923,17 +988,28 @@
     if (syncing || !DS.isConnected()) return;
     if (!navigator.onLine) { syncState = { kind: '', text: 'Offline · tersimpan lokal' }; return paintSync(); }
     syncing = true; syncState = { kind: 'busy', text: 'Menyinkron…' }; paintSync();
+    const startedAt = Date.now();
     try {
       await DS.sync(all, applyMerged, interactive);
+      if (dirtyAt() && dirtyAt() <= startedAt) localStorage.removeItem(DIRTY);
       syncState = { kind: 'ok', text: 'Tersinkron ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) };
       if (interactive) toast('Sinkron selesai');
     } catch (err) {
       console.warn('sync', err);
       syncState = { kind: 'err', text: /login|Izin/i.test(err.message) ? 'Ketuk untuk sinkron' : 'Gagal sinkron' };
       if (interactive) toast(err.message);
-    } finally { syncing = false; paintSync(); if (ui.tab === 'set' || (ui.tab === 'data' && ui.dataSeg === 'set')) render(); }
+    } finally { syncing = false; paintSync(); paintPending(); if (ui.tab === 'set' || (ui.tab === 'data' && ui.dataSeg === 'set')) render(); }
   }
-  function queueSync() { if (!DS.isConnected()) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => runSync(false), 2500); }
+  const DIRTY = 'wk_dirty_at';
+  const dirtyAt = () => Number(localStorage.getItem(DIRTY)) || 0;
+  function queueSync() {
+    if (!DS.isConnected()) return;
+    try { localStorage.setItem(DIRTY, String(Date.now())); } catch (e) { /* abaikan */ }
+    clearTimeout(syncTimer); syncTimer = setTimeout(() => runSync(false), 1500);
+  }
+  // ketukan pengguna = kesempatan memperbarui login tanpa jendela tambahan
+  document.addEventListener('pointerdown', () => { if (DS.isConnected() && !DS.hasToken() && navigator.onLine) DS.refreshToken().then(() => { if (dirtyAt()) runSync(false); }).catch(() => {}); }, true);
+  setInterval(() => { if (!document.hidden && DS.isConnected() && DS.hasToken() && navigator.onLine) runSync(false); }, 45000);
   async function driveConnect() {
     const id = ($('#sClient') && $('#sClient').value.trim()) || '';
     if (id) localStorage.setItem(DS.K.client, id);
@@ -945,7 +1021,8 @@
   }
   $('#syncPill').addEventListener('click', () => { if (!DS.isConnected()) { ui.tab = 'data'; ui.dataSeg = 'set'; ui.pid = null; ui.qid = null; ui.rid = null; render(); } else runSync(true); });
   window.addEventListener('online', () => runSync(false));
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && DS.isConnected() && Date.now() - DS.lastSync() > 60000) runSync(false); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && DS.isConnected() && Date.now() - DS.lastSync() > 15000) runSync(false); });
+  window.addEventListener('focus', () => { if (DS.isConnected() && Date.now() - DS.lastSync() > 15000) runSync(false); });
 
   /* ---------------- API untuk modul Studio (penawaran, RAB, database) ---------------- */
   if (window.Studio) window.Studio.init({ R, ui, of, byId, save, del, cfg, bizInfo, openSheet, closeSheet, toast, render, esc, fmtDate, opt, head, foot, fmtMoneyInput, PDFF, DS, vSettings });
@@ -974,7 +1051,7 @@
       navigator.serviceWorker.register('sw.js').then((reg) => reg.update()).catch(() => {});
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {}); });
     }
-    if (DS.isConnected()) setTimeout(() => runSync(false), 600);
+    if (DS.isConnected()) { DS.warmup(); setTimeout(() => runSync(false), 600); }
     window.__app = { R, ui, render, runSync };
   })();
 })();

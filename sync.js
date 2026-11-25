@@ -9,6 +9,9 @@
   const K = { client: 'wk_client_id', on: 'wk_drive_on', folder: 'wk_folder_id', file: 'wk_file_id', last: 'wk_last_sync' };
 
   let tokenClient = null, tokenClientFor = '', token = null, tokenExp = 0, gsiPromise = null;
+  // token akses (berlaku ±1 jam) disimpan supaya membuka ulang aplikasi tidak perlu login lagi
+  try { const t = LS.getItem('wk_tok'), e = Number(LS.getItem('wk_tok_exp')) || 0; if (t && Date.now() < e) { token = t; tokenExp = e; } } catch (err) { /* abaikan */ }
+  const keepToken = () => { try { if (token) { LS.setItem('wk_tok', token); LS.setItem('wk_tok_exp', String(tokenExp)); } else { LS.removeItem('wk_tok'); LS.removeItem('wk_tok_exp'); } } catch (err) { /* abaikan */ } };
 
   const clientId = () => (LS.getItem(K.client) || '').trim();
   const isConnected = () => LS.getItem(K.on) === '1' && !!clientId();
@@ -43,7 +46,7 @@
         if (r.error) return rej(new Error(r.error === 'access_denied' ? 'Izin ditolak' : 'Perlu login: ' + r.error));
         token = r.access_token;
         tokenExp = Date.now() + ((Number(r.expires_in) || 3600) - 90) * 1000;
-        res(token);
+        keepToken(); res(token);
       };
       tokenClient.error_callback = (e) => rej(new Error('Perlu login (' + ((e && e.type) || 'popup') + ')'));
       tokenClient.requestAccessToken({ prompt: interactive ? '' : 'none' });
@@ -54,7 +57,7 @@
     const res = await fetch(url, Object.assign({}, opts, {
       headers: Object.assign({ Authorization: 'Bearer ' + token }, opts.headers || {}),
     }));
-    if (res.status === 401) { token = null; throw new Error('Perlu login'); }
+    if (res.status === 401) { token = null; tokenExp = 0; keepToken(); throw new Error('Perlu login'); }
     if (!res.ok) {
       let msg = '';
       try { msg = (await res.json()).error.message; } catch (e) { /* abaikan */ }
@@ -112,7 +115,7 @@
   function disconnect() {
     [K.on, K.folder, K.file, K.last].forEach((k) => LS.removeItem(k));
     Object.keys(LS).filter((k) => k.startsWith('wk_dir_')).forEach((k) => LS.removeItem(k));
-    token = null; tokenExp = 0;
+    token = null; tokenExp = 0; keepToken();
   }
 
   /** getLocal(): array record; applyMerged(array): simpan hasil gabungan ke lokal */
@@ -152,5 +155,14 @@
     return meta.id;
   }
 
-  window.DriveSync = { K, clientId, isConnected, hasToken, lastSync, connect, disconnect, sync, uploadFile };
+  // dipanggil saat pengguna mengetuk (mis. Simpan): perbarui login diam-diam bila sudah kedaluwarsa
+  let lastRefresh = 0;
+  function refreshToken() {
+    if (hasToken() || !isConnected() || Date.now() - lastRefresh < 60000) return Promise.resolve(token);
+    lastRefresh = Date.now();
+    return getToken(false);
+  }
+  const warmup = () => (isConnected() ? loadGsi().catch(() => {}) : Promise.resolve());
+
+  window.DriveSync = { K, clientId, isConnected, hasToken, lastSync, connect, disconnect, sync, uploadFile, refreshToken, warmup };
 })();
