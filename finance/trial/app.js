@@ -57,8 +57,9 @@
     const seeds = [];
     const add = (r) => { if (!R.has(r.id)) { R.set(r.id, r); seeds.push(r); } };
     add({ id: 'config', type: 'config', updatedAt: 0, businessName: 'Usaha Anda', cats: DEFAULT_CATS });
-    add({ id: 'acc-bank', type: 'account', updatedAt: 0, name: 'Rekening bank', scope: 'usaha', opening: 0 });
-    add({ id: 'acc-cash', type: 'account', updatedAt: 0, name: 'Kas tunai', scope: 'usaha', opening: 0 });
+    add({ id: 'acc-bank', type: 'account', updatedAt: 0, name: 'Kas Pusat', scope: 'usaha', opening: 0 });
+    add({ id: 'acc-cash', type: 'account', updatedAt: 0, name: 'Petty Cash', scope: 'usaha', opening: 0 });
+    add({ id: 'acc-ops', type: 'account', updatedAt: 0, name: 'Kas Operasional', scope: 'usaha', opening: 0 });
     if (window.Studio) window.Studio.SEEDS().forEach(add);
     if (seeds.length) await idbPut(seeds);
   }
@@ -1094,6 +1095,9 @@
       db = await openDB();
       (await idbAll()).forEach((r) => R.set(r.id, r));
       await seed();
+      for (const [id, oldName, name] of [['acc-bank', 'Rekening bank', 'Kas Pusat'], ['acc-cash', 'Kas tunai', 'Petty Cash']]) {
+        const a = R.get(id); if (a && !a.deleted && a.name === oldName) await save('account', Object.assign({}, a, { name }));
+      }
       const cf = R.get('config');
       if (cf && cf.cats && !cf.catsV3 && cf.updatedAt > 0) {
         const out = cf.cats.out.slice(); for (const c of ['Pembangunan kantor', 'Cicilan rumah kantor', 'Cicilan hutang']) if (!out.includes(c)) out.splice(Math.max(0, out.length - 1), 0, c);
