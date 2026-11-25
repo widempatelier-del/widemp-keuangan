@@ -34,6 +34,8 @@
 
   async function getToken(interactive) {
     if (hasToken()) return token;
+    // tanpa ketukan pengguna jangan pernah membuka jendela login (mengganggu); cukup tandai perlu login
+    if (!interactive) throw new Error('Perlu login');
     const id = clientId();
     if (!id) throw new Error('Client ID Google belum diisi');
     await loadGsi();

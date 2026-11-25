@@ -1029,10 +1029,10 @@
   let syncing = false, syncState = { kind: '', text: 'Siap sinkron' }, syncTimer = null;
   function paintPending() {
     let b = $('#pendingBar');
-    const show = DS.isConnected() && dirtyAt() && syncState.kind === 'err';
+    const show = DS.isConnected() && syncState.kind === 'err';
     if (!show) { if (b) b.remove(); return; }
     if (!b) { b = document.createElement('div'); b.id = 'pendingBar'; b.className = 'note'; b.style.cssText = 'max-width:1240px;margin:10px auto 0;display:flex;gap:10px;align-items:center;justify-content:space-between'; document.querySelector('header.top').after(b); }
-    b.innerHTML = '<span>Ada perubahan yang belum terkirim ke perangkat lain.</span><button class="btn sm primary" type="button" id="pendingBtn">Sinkron sekarang</button>';
+    b.innerHTML = `<span>${dirtyAt() ? 'Ada perubahan yang belum terkirim ke perangkat lain.' : 'Sinkron berhenti sementara (login Google berakhir). Data tetap aman di perangkat ini.'}</span><button class="btn sm primary" type="button" id="pendingBtn">Sinkron sekarang</button>`;
     $('#pendingBtn').onclick = () => runSync(true);
   }
   function paintSync() {
@@ -1067,8 +1067,6 @@
     try { localStorage.setItem(DIRTY, String(Date.now())); } catch (e) { /* abaikan */ }
     clearTimeout(syncTimer); syncState = { kind: 'busy', text: 'Menyimpan…' }; paintSync(); syncTimer = setTimeout(() => runSync(false), 250);
   }
-  // ketukan pengguna = kesempatan memperbarui login tanpa jendela tambahan
-  document.addEventListener('pointerdown', () => { if (DS.isConnected() && !DS.hasToken() && navigator.onLine) DS.refreshToken().then(() => { if (dirtyAt()) runSync(false); }).catch(() => {}); }, true);
   setInterval(() => { if (!document.hidden && DS.isConnected() && DS.hasToken() && navigator.onLine) runSync(false); }, 20000);
   async function driveConnect() {
     const id = ($('#sClient') && $('#sClient').value.trim()) || '';
