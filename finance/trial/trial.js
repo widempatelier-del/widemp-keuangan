@@ -7,6 +7,7 @@
   const esc = (s) => String(s || '').replace(/[&<>"']/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[x]));
   const BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   window.TrialBuyUrl = buyUrl;
+  window.WF_EDITION = 'trial';
 
   async function sha(s) {
     const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(s).trim().toUpperCase()));
@@ -127,18 +128,3 @@
     return { w, h, rgb: await deflate(rgb), alpha: await deflate(al) };
   };
 })();
-
-document.addEventListener('change', async (e) => {
-  if (!e.target || e.target.id !== 'fLogo' || !e.target.files[0]) return;
-  const A = window.__app;
-  try {
-    const logo = await window.TrialMakeLogo(e.target.files[0]);
-    await A.save('config', Object.assign({}, A.R.get('config') || {}, { id: 'config', logo }));
-    A.render(); alert('Logo tersimpan. Coba buka salah satu invoice untuk melihat hasilnya.');
-  } catch (err) { alert('Logo gagal disimpan: ' + err.message); }
-});
-document.addEventListener('click', async (e) => {
-  const b = e.target.closest && e.target.closest('[data-act="logo-del"]'); if (!b) return;
-  const A = window.__app; const c = Object.assign({}, A.R.get('config') || {}, { id: 'config' }); delete c.logo;
-  await A.save('config', c); A.render();
-});

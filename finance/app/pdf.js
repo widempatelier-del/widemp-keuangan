@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const A = self.PDF_ASSETS;
+  const LG = () => self.PDF_LOGO || A.logo; // logo unggahan pengguna, bila ada
   const BASE = (document.currentScript && document.currentScript.src) || location.href;
   const PW = 595.28, PH = 841.89;
   const COL = { dark: '#36302b', tan: '#a3896f', cream: '#f4efe7', line: '#d8cbbb', text: '#3b3835', gray: '#6f6a64', white: '#ffffff' };
@@ -70,8 +71,10 @@
       this.ops.push(`q ${rgb(color)} RG ${lw} w ${dash ? '[' + dash + '] 0 d ' : ''}${f2(x1)} ${f2(this.ph - y1)} m ${f2(x2)} ${f2(this.ph - y2)} l S Q`);
     }
     logo(x, y, w) {
-      const h = w * A.logo.h / A.logo.w;
-      this.ops.push(`q ${f2(w)} 0 0 ${f2(h)} ${f2(x)} ${f2(this.ph - y - h)} cm /Logo Do Q`);
+      // logo tinggi/tegak (mis. unggahan pengguna) dibatasi supaya tidak melewati kop; diletakkan di tengah lebar w
+      const maxH = w * 0.72; let h = w * LG().h / LG().w, lw = w;
+      if (h > maxH) { lw = w * maxH / h; h = maxH; x += (w - lw) / 2; }
+      this.ops.push(`q ${f2(lw)} 0 0 ${f2(h)} ${f2(x)} ${f2(this.ph - y - h)} cm /Logo Do Q`);
       this.usesLogo = true;
       return h;
     }
@@ -102,8 +105,8 @@
         obj(ff, stream(`/Length1 ${ttf.length}`, ttf));
       }
       const logoN = n, maskN = n + 1; n += 2;
-      obj(maskN, stream(`/Type /XObject /Subtype /Image /Width ${A.logo.w} /Height ${A.logo.h} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`, b64(A.logo.alpha)));
-      obj(logoN, stream(`/Type /XObject /Subtype /Image /Width ${A.logo.w} /Height ${A.logo.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /SMask ${maskN} 0 R`, b64(A.logo.rgb)));
+      obj(maskN, stream(`/Type /XObject /Subtype /Image /Width ${LG().w} /Height ${LG().h} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`, b64(LG().alpha)));
+      obj(logoN, stream(`/Type /XObject /Subtype /Image /Width ${LG().w} /Height ${LG().h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /SMask ${maskN} 0 R`, b64(LG().rgb)));
       const res = `<< /Font << ${keys.map((k) => `/F${k} ${fontRef[k]} 0 R`).join(' ')} >> /XObject << /Logo ${logoN} 0 R >> /ExtGState << /WM << /ca 0.13 /CA 0.13 >> >> >>`;
       const kids = [];
       for (const ops of this.pages) {

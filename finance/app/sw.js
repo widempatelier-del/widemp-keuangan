@@ -1,5 +1,5 @@
 /* Service worker: aplikasi tetap terbuka tanpa internet */
-const CACHE = 'wfdemo-v3';
+const CACHE = 'wfdemo-v4';
 const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'demo.js', 'pdf-assets.js', 'pdf.js', 'laporan-pdf.js', 'app.js', 'assets/montserrat-R.ttf', 'assets/montserrat-M.ttf', 'assets/montserrat-B.ttf', 'assets/montserrat-I.ttf', 'assets/logo-mark.png', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {

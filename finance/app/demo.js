@@ -13,6 +13,7 @@
     uploadFile: async () => { throw new Error('Simpan ke Drive tersedia di versi lengkap'); }, refreshToken: () => Promise.resolve(), warmup: () => Promise.resolve(),
   };
   self.PDF_WATERMARK = 'DEMO';
+  window.WF_EDITION = 'demo';
 
   /* ---------- data contoh (semua fiktif), tanggal mengikuti hari ini ---------- */
   function seed() {

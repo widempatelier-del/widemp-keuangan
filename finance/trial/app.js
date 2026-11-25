@@ -358,10 +358,10 @@
     <h2>Usaha</h2><div class="card">
       <label>Nama usaha (tampil di kop)</label><input id="sBiz" value="${esc(c.businessName)}">
       <div class="actions"><button class="btn sm primary" data-act="save-biz">Simpan</button></div></div>
-    <h2>Logo usaha</h2><div class="card">
-      <div class="s muted">Dipakai di kop invoice, kwitansi, dan laporan PDF. Gunakan PNG berlatar transparan bila ada.</div>
-      ${c.logo ? '<div class="s" style="margin-top:8px">Logo sudah terpasang.</div>' : '<div class="s" style="margin-top:8px">Belum ada logo (PDF memakai tanda "LOGO USAHA").</div>'}
-      <div class="actions"><label class="btn sm primary" style="margin:0;color:#fff">Unggah logo<input type="file" id="fLogo" accept="image/png,image/jpeg,image/webp" hidden></label>${c.logo ? '<button class="btn sm danger" data-act="logo-del">Hapus logo</button>' : ''}</div></div>
+    <!--logo--><h2>Logo usaha</h2><div class="card">
+      <div class="s muted">Dipakai di kop invoice, kwitansi, penawaran, dan laporan PDF. Gunakan PNG berlatar transparan bila ada.</div>
+      <div class="s" style="margin-top:8px">${c.logo ? 'Logo unggahan sedang dipakai.' : 'Memakai logo bawaan.'}</div>
+      <div class="actions"><label class="btn sm primary" style="margin:0;color:#fff">Unggah logo<input type="file" id="fLogo" accept="image/png,image/jpeg,image/webp" hidden></label>${c.logo ? '<button class="btn sm danger" data-act="logo-del">Kembali ke logo bawaan</button>' : ''}</div></div><!--/logo-->
     <h2>Invoice &amp; kwitansi</h2><div class="card">
       <div class="cols"><div><label>Kota (tanda tangan kwitansi)</label><input id="bCity" value="${esc(c.city)}"></div><div><label>Telepon</label><input id="bPhone" value="${esc(c.phone)}" inputmode="tel"></div></div>
       <div class="cols"><div><label>Email</label><input id="bEmail" value="${esc(c.email)}" inputmode="email"></div><div><label>Tagline</label><input id="bTag" value="${esc(c.tagline)}"></div></div>
@@ -684,6 +684,7 @@
       case 'report-all': reportSheet('all'); break;
       case 'cash-report': cashReportSheet(); break;
       case 'rep-dl': case 'rep-print': case 'rep-share': case 'rep-drive': reportAction(a, el); break;
+      case 'logo-del': { const c = Object.assign({}, R.get('config') || {}, { id: 'config' }); delete c.logo; await save('config', c); render(); toast('Logo bawaan dipakai lagi'); break; }
       case 'new-liab': liabForm(null); break;
       case 'edit-liab': liabForm(byId(id)); break;
       case 'del-liab': if (of('tx').some((t) => t.liabilityId === id) && !confirm('Kewajiban ini punya pembayaran tercatat. Pembayarannya tetap ada sebagai pengeluaran. Hapus?')) return; if (confirm('Hapus kewajiban ini?')) { await del(id); closeSheet(); render(); } break;
@@ -711,6 +712,10 @@
     else if (t.id === 'fKind') { ui.kind = t.value; render(); }
     else if (t.id === 'fProj') { ui.proj = t.value; render(); }
     else if (t.id === 'fAcc') { ui.acc = t.value; render(); }
+    else if (t.id === 'fLogo' && t.files[0]) {
+      makeLogo(t.files[0]).then((logo) => save('config', Object.assign({}, R.get('config') || {}, { id: 'config', logo })))
+        .then(() => { render(); toast('Logo tersimpan, dipakai di semua PDF'); }).catch((err) => toast('Logo gagal: ' + err.message));
+    }
     else if (t.closest && t.closest('#cashRep')) updCashPrev();
     else if (t.matches && t.matches('.dayrow [name=d_cat]')) t.dataset.touched = '1';
     else if (t.matches && t.matches('.dayrow [name=d_kind], .dayrow [name=d_proj]')) refreshDayRow(t.closest('.dayrow'));
@@ -1023,6 +1028,26 @@
     } finally { btn.disabled = false; btn.textContent = label; }
   }
 
+  /* ---------------- Logo unggahan → data gambar untuk PDF ---------------- */
+  async function deflateB64(bytes) {
+    if (!window.CompressionStream) throw new Error('Browser ini belum mendukung; pakai Chrome atau Edge terbaru');
+    const buf = await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer();
+    let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  async function makeLogo(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Gambar tidak bisa dibaca')); i.src = url; });
+      const k = Math.min(1, 700 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d'); g.drawImage(img, 0, 0, w, h);
+      const px = g.getImageData(0, 0, w, h).data, rgb = new Uint8Array(w * h * 3), al = new Uint8Array(w * h);
+      for (let i = 0, j = 0, n = 0; i < px.length; i += 4, j += 3, n++) { rgb[j] = px[i]; rgb[j + 1] = px[i + 1]; rgb[j + 2] = px[i + 2]; al[n] = px[i + 3]; }
+      return { w, h, rgb: await deflateB64(rgb), alpha: await deflateB64(al) };
+    } finally { URL.revokeObjectURL(url); }
+  }
+
   /* ---------------- Cadangan ---------------- */
   function exportJson() {
     const blob = new Blob([JSON.stringify({ app: 'widemp-keuangan', schema: 1, exportedAt: Date.now(), records: all() }, null, 1)], { type: 'application/json' });
@@ -1113,6 +1138,13 @@
       if (cf && cf.cats && !cf.catsV3 && cf.updatedAt > 0) {
         const out = cf.cats.out.slice(); for (const c of ['Pembangunan kantor', 'Cicilan rumah kantor', 'Cicilan hutang']) if (!out.includes(c)) out.splice(Math.max(0, out.length - 1), 0, c);
         await save('config', Object.assign({}, cf, { cats: Object.assign({}, cf.cats, { out }), catsV2: true, catsV3: true }));
+      }
+      if (!window.WF_EDITION && cf && cf.updatedAt > 0 && !cf.kasV1) {
+        const cash = R.get('acc-cash');
+        if (cash && !cash.deleted && cash.name === 'Kas tunai') await save('account', Object.assign({}, cash, { name: 'Petty Cash' }));
+        if (!R.has('acc-pusat')) await save('account', { id: 'acc-pusat', name: 'Kas Pusat', scope: 'usaha', opening: 0 });
+        if (!R.has('acc-ops')) await save('account', { id: 'acc-ops', name: 'Kas Operasional', scope: 'usaha', opening: 0 });
+        await save('config', Object.assign({}, R.get('config'), { kasV1: true }));
       }
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     } catch (err) {
