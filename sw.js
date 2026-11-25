@@ -1,5 +1,5 @@
 /* Service worker: aplikasi tetap terbuka tanpa internet */
-const CACHE = 'widemp-v16';
+const CACHE = 'widemp-v17';
 const SHELL = ['./', 'index.html', 'style.css', 'core.js', 'sync.js', 'pdf-assets.js', 'pdf.js', 'laporan-pdf.js', 'studio-core.js', 'studio-pdf.js', 'studio.js', 'app.js', 'assets/montserrat-R.ttf', 'assets/montserrat-M.ttf', 'assets/montserrat-B.ttf', 'assets/montserrat-I.ttf', 'assets/logo-mark.png', 'assets/logo.png', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -13,6 +13,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return; // Google API dll. tidak di-cache
+  if (new URL(req.url).pathname.includes('/finance/')) return; // situs demo WIDEMP FINANCE punya cache sendiri
   // cache dulu, perbarui di latar belakang (versi baru terpakai pada pembukaan berikutnya)
   e.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
