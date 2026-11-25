@@ -129,10 +129,10 @@
   /** Laporan arus kas suatu periode. data: { label, start, end, opening, closing, txs, catIn, catOut, byProject, printedAt } */
   function cashflow(data, biz, F) {
     const rp = F.rp, d = new Doc();
-    const ctx = frame(d, biz, 'LAPORAN ARUS KAS', data.label);
+    const ctx = frame(d, biz, 'LAPORAN ARUS KAS', data.label + (data.accountName ? ' · ' + data.accountName : ''));
     const inn = data.txs.filter((t) => t.kind === 'in').reduce((a, t) => a + t.amount, 0), out = data.txs.filter((t) => t.kind === 'out').reduce((a, t) => a + t.amount, 0);
     d.text(`Periode ${F.tanggal(data.start)} – ${F.tanggal(data.end)}`, ctx.X0, ctx.y + 2, { font: 'B', size: 12, color: COL.dark });
-    d.text('Dicetak ' + F.tanggal(data.printedAt) + ' · hanya akun usaha', ctx.X0, ctx.y + 16, { size: 8, color: COL.gray });
+    d.text('Dicetak ' + F.tanggal(data.printedAt) + ' · ' + (data.accountName ? 'Akun: ' + data.accountName : 'semua akun usaha'), ctx.X0, ctx.y + 16, { size: 8, color: COL.gray });
     ctx.y += 32;
     boxes(ctx, [['Saldo awal', rp(data.opening)], ['Pemasukan', rp(inn), '#4f6a33'], ['Pengeluaran', rp(out), '#9b5a3c'], ['Selisih', rp(inn - out), inn - out < 0 ? '#9b5a3c' : COL.dark], ['Saldo akhir', rp(data.closing)]]);
     const catTable = (title, list, total) => {
@@ -143,6 +143,13 @@
     };
     catTable('Pemasukan per kategori', data.catIn, inn);
     catTable('Pengeluaran per kategori', data.catOut, out);
+    if (data.byAccount && data.byAccount.length > 1) {
+      section(ctx, 'Per akun kas');
+      const t = (k) => data.byAccount.reduce((a, r) => a + r[k], 0);
+      table(ctx, [{ h: 'AKUN', w: 28 }, { h: 'SALDO AWAL', w: 18, align: 'right' }, { h: 'MASUK', w: 18, align: 'right' }, { h: 'KELUAR', w: 18, align: 'right' }, { h: 'SALDO AKHIR', w: 18, align: 'right' }],
+        data.byAccount.map((r) => ({ cells: [r.name, rp(r.opening), r.in ? rp(r.in) : '–', r.out ? rp(r.out) : '–', rp(r.closing)], colors: [null, null, '#4f6a33', '#9b5a3c', null] }))
+          .concat([{ bold: true, cells: ['Total', rp(t('opening')), rp(t('in')), rp(t('out')), rp(t('closing'))] }]));
+    }
     if (data.byProject.length) {
       section(ctx, 'Per proyek');
       table(ctx, [{ h: 'PROYEK', w: 46 }, { h: 'MASUK', w: 18, align: 'right' }, { h: 'KELUAR', w: 18, align: 'right' }, { h: 'SELISIH', w: 18, align: 'right' }],
@@ -150,9 +157,10 @@
     }
     section(ctx, 'Rincian transaksi');
     if (data.txs.length) {
-      table(ctx, [{ h: 'TANGGAL', w: 12 }, { h: 'PROYEK', w: 18 }, { h: 'KATEGORI', w: 16 }, { h: 'KETERANGAN', w: 26 }, { h: 'MASUK', w: 14, align: 'right' }, { h: 'KELUAR', w: 14, align: 'right' }],
-        data.txs.map((t) => ({ cells: [F.tanggal(t.date), t.projectName || 'Kantor / umum', t.category || '', t.note || '', t.kind === 'in' ? rp(t.amount) : '', t.kind === 'out' ? rp(t.amount) : ''], colors: [null, null, null, null, '#4f6a33', '#9b5a3c'] }))
-          .concat([{ bold: true, cells: ['', '', 'Total', '', rp(inn), rp(out)] }]), { size: 7.6 });
+      const withAcc = !data.accountName;
+      table(ctx, [{ h: 'TANGGAL', w: 12 }].concat(withAcc ? [{ h: 'AKUN', w: 12 }] : [], [{ h: 'PROYEK', w: 16 }, { h: 'KATEGORI', w: 14 }, { h: 'KETERANGAN', w: withAcc ? 18 : 26 }, { h: 'MASUK', w: 14, align: 'right' }, { h: 'KELUAR', w: 14, align: 'right' }]),
+        data.txs.map((t) => ({ cells: [F.tanggal(t.date)].concat(withAcc ? [t.accName || ''] : [], [t.projectName || 'Kantor / umum', t.category || '', t.note || '', t.kind === 'in' ? rp(t.amount) : '', t.kind === 'out' ? rp(t.amount) : '']), colors: (withAcc ? [null] : []).concat([null, null, null, null, '#4f6a33', '#9b5a3c']) }))
+          .concat([{ bold: true, cells: [''].concat(withAcc ? [''] : [], ['', 'Total', '', rp(inn), rp(out)]) }]), { size: 7.4 });
     } else { d.text('Tidak ada transaksi pada periode ini.', ctx.X0, ctx.y + 6, { size: 8.5, color: COL.gray }); ctx.y += 24; }
     ctx.footer();
     return d.build('Laporan arus kas ' + data.label);

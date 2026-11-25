@@ -327,6 +327,7 @@
     if (ui.month) txs = txs.filter((t) => C.monthKey(t.date) === ui.month);
     if (ui.kind) txs = txs.filter((t) => t.kind === ui.kind);
     if (ui.proj) txs = txs.filter((t) => (ui.proj === '-' ? !t.projectId : t.projectId === ui.proj));
+    if (ui.acc) txs = txs.filter((t) => t.accountId === ui.acc);
     if (ui.q) { const q = ui.q.toLowerCase(); txs = txs.filter((t) => [t.category, t.note, accName(t.accountId), projName(t.projectId)].join(' ').toLowerCase().includes(q)); }
     txs.sort((a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0));
     const u = C.usahaTxs(accounts, txs);
@@ -335,6 +336,7 @@
     <div class="filters">
       <input type="month" id="fMonth" value="${esc(ui.month)}" aria-label="Bulan">
       <select id="fKind" aria-label="Jenis"><option value="">Semua</option><option value="in" ${ui.kind === 'in' ? 'selected' : ''}>Masuk</option><option value="out" ${ui.kind === 'out' ? 'selected' : ''}>Keluar</option></select>
+      <select id="fAcc" aria-label="Akun kas"><option value="">Semua akun</option>${of('account').map((a) => opt(a.id, a.name, ui.acc === a.id)).join('')}</select>
       <select id="fProj" aria-label="Proyek"><option value="">Semua proyek</option><option value="-" ${ui.proj === '-' ? 'selected' : ''}>Tanpa proyek (kantor)</option>${of('project').map((p) => opt(p.id, p.name, ui.proj === p.id)).join('')}</select>
       <input type="search" id="fQ" placeholder="Cari…" value="${esc(ui.q)}">
     </div>
@@ -695,6 +697,7 @@
     else if (t.id === 'fMonth') { ui.month = t.value; render(); }
     else if (t.id === 'fKind') { ui.kind = t.value; render(); }
     else if (t.id === 'fProj') { ui.proj = t.value; render(); }
+    else if (t.id === 'fAcc') { ui.acc = t.value; render(); }
     else if (t.closest && t.closest('#cashRep')) updCashPrev();
     else if (t.matches && t.matches('.dayrow [name=d_cat]')) t.dataset.touched = '1';
     else if (t.matches && t.matches('.dayrow [name=d_kind], .dayrow [name=d_proj]')) refreshDayRow(t.closest('.dayrow'));
@@ -903,22 +906,29 @@
     return null;
   }
   function cashData(r) {
-    const accounts = of('account'), all = of('tx');
+    const accAll = of('account'), all = of('tx'), acc = r.accountId ? byId(r.accountId) : null;
+    // satu akun: hitung akun itu saja (termasuk bila bertanda pribadi/arsip)
+    const accounts = acc ? [Object.assign({}, acc, { scope: 'usaha' })] : accAll;
     const prevDay = (() => { const x = new Date(r.start + 'T00:00:00'); x.setDate(x.getDate() - 1); return C.isoDate(x); })();
+    const byAccount = acc ? [] : accAll.filter((a) => (a.scope || 'usaha') === 'usaha').map((a) => {
+      const one = [Object.assign({}, a)], tx = all.filter((t) => t.accountId === a.id && t.date >= r.start && t.date <= r.end);
+      return { name: a.name, opening: C.balanceAt(one, all, prevDay), in: tx.filter((t) => t.kind === 'in').reduce((x, t) => x + t.amount, 0), out: tx.filter((t) => t.kind === 'out').reduce((x, t) => x + t.amount, 0), closing: C.balanceAt(one, all, r.end) };
+    });
     const txs = C.usahaTxs(accounts, all).filter((t) => t.date >= r.start && t.date <= r.end)
       .sort((a, b) => a.date.localeCompare(b.date) || (a.updatedAt || 0) - (b.updatedAt || 0))
-      .map((t) => Object.assign({}, t, { projectName: projName(t.projectId) }));
+      .map((t) => Object.assign({}, t, { projectName: projName(t.projectId), accName: (byId(t.accountId) || {}).name || '' }));
     const group = (kind) => { const m = new Map(); txs.filter((t) => t.kind === kind).forEach((t) => m.set(t.category || 'Lainnya', (m.get(t.category || 'Lainnya') || 0) + t.amount)); return [...m].sort((a, b) => b[1] - a[1]); };
     const pm = new Map();
     txs.forEach((t) => { const k = t.projectName || 'Kantor / umum'; const v = pm.get(k) || { name: k, in: 0, out: 0 }; v[t.kind] += t.amount; pm.set(k, v); });
     return Object.assign({}, r, { opening: C.balanceAt(accounts, all, prevDay), closing: C.balanceAt(accounts, all, r.end), txs, catIn: group('in'), catOut: group('out'),
-      byProject: [...pm.values()].sort((a, b) => (b.in + b.out) - (a.in + a.out)), printedAt: C.isoDate() });
+      byProject: [...pm.values()].sort((a, b) => (b.in + b.out) - (a.in + a.out)), byAccount, accountName: acc ? acc.name : '', printedAt: C.isoDate() });
   }
   function cashReportSheet() {
     const canShare = !!(navigator.canShare && navigator.share);
     const btns = ['rep-dl:Unduh PDF:primary', 'rep-print:Buka / cetak:'].concat(canShare ? ['rep-share:Bagikan:'] : []).concat(DS.isConnected() ? ['rep-drive:Simpan ke Drive:'] : []);
     openSheet(`<form data-form="view" id="cashRep">${head('Laporan kas')}
       <div class="muted s">Pemasukan dan pengeluaran usaha dalam satu periode: saldo awal–akhir, per kategori, per proyek, dan rincian transaksi.</div>
+      <label>Akun kas</label><select name="acc" id="cashAcc"><option value="">Semua akun usaha</option>${of('account').map((a) => opt(a.id, a.name + (a.scope === 'pribadi' ? ' (pribadi)' : a.scope === 'arsip' ? ' (arsip)' : ''), a.id === ui.cashAcc)).join('')}</select>
       <label>Periode</label><select name="per" id="cashPer">${[['w0', 'Minggu ini'], ['w1', 'Minggu lalu'], ['m0', 'Bulan ini'], ['m1', 'Bulan lalu'], ['mm', 'Pilih bulan…'], ['cr', 'Pilih tanggal…']].map(([k, l]) => opt(k, l, k === (ui.cashPer || 'm0'))).join('')}</select>
       <div id="cashMonth" hidden><label>Bulan</label><input type="month" name="month" value="${C.monthKey(C.isoDate())}"></div>
       <div id="cashRange" class="cols" hidden><div><label>Dari</label><input type="date" name="from" value="${C.isoDate()}"></div><div><label>Sampai</label><input type="date" name="to" value="${C.isoDate()}"></div></div>
@@ -929,11 +939,12 @@
   }
   function cashRange() {
     const f = $('#cashRep'); if (!f) return null;
-    return periodOf(f.per.value, f.per.value === 'mm' ? f.month.value : f.from.value, f.to.value);
+    const r = periodOf(f.per.value, f.per.value === 'mm' ? f.month.value : f.from.value, f.to.value);
+    return r ? Object.assign(r, { accountId: f.acc.value }) : null;
   }
   function updCashPrev() {
     const f = $('#cashRep'); if (!f) return;
-    ui.cashPer = f.per.value;
+    ui.cashPer = f.per.value; ui.cashAcc = f.acc.value;
     $('#cashMonth').hidden = f.per.value !== 'mm'; $('#cashRange').hidden = f.per.value !== 'cr';
     const r = cashRange(), el = $('#cashPrev'); if (!r) { el.textContent = ''; return; }
     const dt = cashData(r), i = dt.txs.filter((t) => t.kind === 'in').reduce((a, t) => a + t.amount, 0), o = dt.txs.filter((t) => t.kind === 'out').reduce((a, t) => a + t.amount, 0);
@@ -959,7 +970,7 @@
     const label = el.textContent; el.disabled = true; el.textContent = 'Menyiapkan…';
     try {
       let blob, name;
-      if (kind === 'cash') { const r = cashRange(); if (!r) throw new Error('Pilih periode dulu'); const dt = cashData(r); blob = await window.LaporanPDF.cashflow(dt, bizInfo(), PDFF); name = `Laporan_Kas_${r.start}_sd_${r.end}.pdf`; }
+      if (kind === 'cash') { const r = cashRange(); if (!r) throw new Error('Pilih periode dulu'); const dt = cashData(r); blob = await window.LaporanPDF.cashflow(dt, bizInfo(), PDFF); name = `Laporan_Kas_${dt.accountName ? slug(dt.accountName) + '_' : ''}${r.start}_sd_${r.end}.pdf`; }
       else if (kind === 'one') { blob = await window.LaporanPDF.project(reportData(p), bizInfo(), PDFF); name = `Laporan_${slug(p.name)}_${C.isoDate()}.pdf`; }
       else { const r = allReport(); blob = await window.LaporanPDF.allProjects(r.rows, r.tot, bizInfo(), PDFF, C.isoDate()); name = `Rekap_Keuangan_Proyek_${C.isoDate()}.pdf`; }
       const url = URL.createObjectURL(blob);
