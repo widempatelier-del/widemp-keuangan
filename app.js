@@ -68,7 +68,7 @@
   const cats = (kind) => (cfg().cats && cfg().cats[kind]) || DEFAULT_CATS[kind];
 
   /* ---------------- UI state ---------------- */
-  const ui = { period: (() => { try { return localStorage.getItem('wk_period') || 'm3'; } catch (e) { return 'm3'; } })(), tab: 'dash', pid: null, month: C.monthKey(C.isoDate()), kind: '', q: '', docKind: 'invoice' };
+  const ui = { proj: '', period: (() => { try { return localStorage.getItem('wk_period') || 'm3'; } catch (e) { return 'm3'; } })(), tab: 'dash', pid: null, month: C.monthKey(C.isoDate()), kind: '', q: '', docKind: 'invoice' };
   const view = $('#view'), sheet = $('#sheet');
   const byId = (id) => R.get(id);
 
@@ -180,6 +180,7 @@
     const sumOf = (p) => C.projectSummary(p, terms.filter((t) => t.projectId === p.id), txs);
     const opts = [['m1', 'Bulan ini'], ['m3', '3 bulan terakhir'], ['m6', '6 bulan terakhir'], ['y', 'Tahun ini']];
     return `
+    <button class="fab" data-act="daily" aria-label="Catat transaksi harian">+</button>
     <div class="ptitle"><div class="tx"><h1>Keuangan Proyek</h1><p>Pantau arus kas dan performa proyek dalam satu ruang.</p><div class="rule"></div></div>
       <label class="period" title="Periode">${ICON.cal}<select id="fPeriod" aria-label="Periode">${opts.map(([k, l]) => `<option value="${k}" ${ui.period === k ? 'selected' : ''}>${k === ui.period ? cur.label : l}</option>`).join('')}</select></label></div>
     <div class="grid g4">
@@ -297,7 +298,7 @@
     </div>
     <h2>Transaksi proyek</h2>
     <div class="card">${ptx.length ? ptx.map(txRow).join('') : '<div class="empty">Belum ada transaksi.</div>'}
-      <div class="actions"><button class="btn sm" data-act="new-tx" data-kind="out" data-project="${p.id}">Catat pengeluaran proyek</button></div></div>`;
+      <div class="actions"><button class="btn sm primary" data-act="daily" data-kind="out" data-project="${p.id}">+ Pengeluaran proyek</button><button class="btn sm" data-act="daily" data-kind="in" data-project="${p.id}">+ Pemasukan proyek</button></div></div>`;
   }
 
   /* ----- Kas ----- */
@@ -308,25 +309,37 @@
       <div class="s">${fmtDate(t.date)} · ${esc(accName(t.accountId))}${projName(t.projectId) ? ' · ' + esc(projName(t.projectId)) : ''}${t.note ? ' · ' + esc(t.note) : ''}</div></div>
       <div class="amt ${t.kind === 'in' ? 'in' : 'out'}">${t.kind === 'in' ? '+' : '−'}${rp(t.amount)}${t.kind === 'in' ? `<div><span class="badge ${txReceipt(t.id) ? 'ok' : ''}" data-act="${txReceipt(t.id) ? 'view-doc' : 'new-receipt'}" data-id="${txReceipt(t.id) ? txReceipt(t.id).id : ''}" data-tx="${t.id}" style="cursor:pointer">${txReceipt(t.id) ? 'Kwitansi ✓' : '+ Kwitansi'}</span></div>` : ''}</div></div>`;
   }
+  function dayGroups(txs) {
+    const days = new Map();
+    for (const t of txs) { if (!days.has(t.date)) days.set(t.date, []); days.get(t.date).push(t); }
+    return [...days].map(([d, list]) => {
+      const u = C.usahaTxs(of('account'), list), i = u.filter((t) => t.kind === 'in').reduce((a, t) => a + t.amount, 0), o = u.filter((t) => t.kind === 'out').reduce((a, t) => a + t.amount, 0);
+      return `<div class="card"><div class="row" style="padding:0 0 8px;border:0"><div class="grow t">${fmtDate(d)}</div><div class="s">${i ? `<span class="in">+${rp(i)}</span>` : ''}${i && o ? ' · ' : ''}${o ? `<span class="out">−${rp(o)}</span>` : ''}</div></div>${list.map(txRow).join('')}</div>`;
+    }).join('');
+  }
   function vCash() {
     const accounts = of('account');
     let txs = of('tx');
     if (ui.month) txs = txs.filter((t) => C.monthKey(t.date) === ui.month);
     if (ui.kind) txs = txs.filter((t) => t.kind === ui.kind);
+    if (ui.proj) txs = txs.filter((t) => (ui.proj === '-' ? !t.projectId : t.projectId === ui.proj));
     if (ui.q) { const q = ui.q.toLowerCase(); txs = txs.filter((t) => [t.category, t.note, accName(t.accountId), projName(t.projectId)].join(' ').toLowerCase().includes(q)); }
     txs.sort((a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0));
     const u = C.usahaTxs(accounts, txs);
     const inn = u.filter((t) => t.kind === 'in').reduce((s, t) => s + t.amount, 0), out = u.filter((t) => t.kind === 'out').reduce((s, t) => s + t.amount, 0);
-    return liabPanel(false) + `<h2>Kas masuk &amp; keluar</h2>
+    return `<h2>Kas masuk &amp; keluar</h2>
     <div class="filters">
       <input type="month" id="fMonth" value="${esc(ui.month)}" aria-label="Bulan">
       <select id="fKind" aria-label="Jenis"><option value="">Semua</option><option value="in" ${ui.kind === 'in' ? 'selected' : ''}>Masuk</option><option value="out" ${ui.kind === 'out' ? 'selected' : ''}>Keluar</option></select>
+      <select id="fProj" aria-label="Proyek"><option value="">Semua proyek</option><option value="-" ${ui.proj === '-' ? 'selected' : ''}>Tanpa proyek (kantor)</option>${of('project').map((p) => opt(p.id, p.name, ui.proj === p.id)).join('')}</select>
       <input type="search" id="fQ" placeholder="Cari…" value="${esc(ui.q)}">
     </div>
+    <div class="actions" style="margin-top:0"><button class="btn primary" data-act="daily">+ Catat transaksi harian</button></div>
     <div class="grid"><div class="stat"><div class="l">Masuk</div><div class="v in">${rp(inn)}</div></div><div class="stat"><div class="l">Keluar</div><div class="v out">${rp(out)}</div></div></div>
-    <div class="card" style="margin-top:12px">${txs.length ? txs.map(txRow).join('') : '<div class="empty">Tidak ada transaksi pada filter ini.</div>'}</div>
-    <div class="muted" style="font-size:12px">Akun bertanda “pribadi” atau “arsip” tidak dihitung di total dan saldo.</div>
-    <button class="fab" data-act="new-tx" aria-label="Catat transaksi">+</button>`;
+    <div style="margin-top:12px">${txs.length ? dayGroups(txs) : '<div class="card empty">Tidak ada transaksi pada filter ini.</div>'}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:16px">Akun bertanda “pribadi” atau “arsip” tidak dihitung di total dan saldo.</div>
+    ${liabPanel(false)}
+    <button class="fab" data-act="daily" aria-label="Catat transaksi harian">+</button>`;
   }
 
   /* ----- Pengaturan ----- */
@@ -448,7 +461,8 @@
     wrap.hidden = !(kind === 'in' && pid);
     if (!wrap.hidden) {
       const p = byId(pid), s = C.projectSummary(p, of('term').filter((t) => t.projectId === pid), of('tx'));
-      const keep = f.termId.value || f.dataset.term;
+      let keep = f.termId.value || f.dataset.term;
+      if (!keep && !f.dataset.id) { const open = s.sched.find((t) => t.remaining > 0); if (open) keep = open.id; }
       f.termId.innerHTML = '<option value="">— tidak terkait termin —</option>' + s.sched.filter((t) => t.remaining > 0 || t.id === keep).map((t) => opt(t.id, `${t.label} (sisa ${rp(t.remaining)})`, t.id === keep)).join('');
     } else f.termId.innerHTML = '';
     const rw = $('#rabWrap', f), rab = kind === 'out' && pid ? curRab(pid) : null;
@@ -459,6 +473,64 @@
       f.rabItemId.innerHTML = '<option value="">— bukan item RAB —</option>' + divs.map((g) => `<optgroup label="${esc(g.n)}">${g.l.map((it) => { const k = it.baseId || it.id; return opt(k, (it.desc || '(tanpa uraian)') + (it.room ? ' · ' + it.room : ''), k === keep); }).join('')}</optgroup>`).join('');
     } else f.rabItemId.innerHTML = '';
     f.dataset.cat = '';
+  }
+
+  const lastProj = () => { try { return localStorage.getItem('wk_last_proj') || ''; } catch (e) { return ''; } };
+  function dayRow(pre = {}) {
+    const kind = pre.kind || 'out', pid = pre.projectId != null ? pre.projectId : lastProj();
+    return `<div class="dayrow card" style="padding:10px;margin-bottom:8px">
+      <div style="display:grid;grid-template-columns:1fr 1.6fr auto;gap:6px;align-items:end">
+        <div><label style="margin-top:0">Jenis</label><select name="d_kind">${opt('out', 'Keluar', kind === 'out')}${opt('in', 'Masuk', kind === 'in')}</select></div>
+        <div><label style="margin-top:0">Proyek</label><select name="d_proj"><option value="">— kantor / umum —</option>${of('project').filter((p) => p.status !== 'batal').map((p) => opt(p.id, p.name, p.id === pid)).join('')}</select></div>
+        <button class="btn sm danger" type="button" data-act="rm-dayrow" style="margin-bottom:4px">✕</button></div>
+      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:6px">
+        <div><label>Kategori</label><select name="d_cat"></select></div>
+        <div><label>Jumlah (Rp)</label><input name="d_amt" class="money" inputmode="numeric" value=""></div></div>
+      <div class="d_term"><label>Masuk ke termin</label><select name="d_term"></select></div>
+      <label>Catatan</label><input name="d_note" placeholder="mis. beli semen, ongkos tukang">
+    </div>`;
+  }
+  function refreshDayRow(r) {
+    const kind = r.querySelector('[name=d_kind]').value, pid = r.querySelector('[name=d_proj]').value, cs = r.querySelector('[name=d_cat]');
+    const cur = cs.dataset.kind === kind && cs.dataset.touched ? cs.value : '';
+    const def = kind === 'in' ? (pid ? 'Pembayaran proyek' : '') : (pid ? 'Material' : 'Operasional kantor');
+    cs.innerHTML = cats(kind).map((c) => opt(c, c, c === (cur || def))).join(''); cs.dataset.kind = kind;
+    const tw = r.querySelector('.d_term'), ts = r.querySelector('[name=d_term]');
+    tw.hidden = !(kind === 'in' && pid);
+    if (!tw.hidden) {
+      const p = byId(pid), sm = C.projectSummary(p, of('term').filter((t) => t.projectId === pid), of('tx')), open = sm.sched.filter((t) => t.remaining > 0);
+      ts.innerHTML = '<option value="">— tidak terkait termin —</option>' + open.map((t, i) => opt(t.id, `${t.label} (sisa ${rp(t.remaining)})`, i === 0)).join('');
+    } else ts.innerHTML = '';
+  }
+  function dailyForm(pre = {}) {
+    openSheet(`<form data-form="daily">${head('Transaksi harian')}
+      <div class="muted s">Catat beberapa transaksi sekaligus. Yang dipilih proyeknya langsung masuk ke proyek itu.</div>
+      <div class="cols"><div><label>Tanggal</label><input type="date" name="date" required value="${C.isoDate()}"></div>
+      <div><label>Akun</label><select name="accountId">${accountOptions('acc-bank')}</select></div></div>
+      <div id="dayRows" style="margin-top:12px">${dayRow(pre)}</div>
+      <div class="actions"><button class="btn sm" type="button" data-act="add-dayrow">+ Baris</button><span class="s" id="dayTotal"></span></div>
+      ${foot()}</form>`);
+    sheet.querySelectorAll('.dayrow').forEach(refreshDayRow); updDayTotal();
+  }
+  function updDayTotal() {
+    const el = $('#dayTotal'); if (!el) return;
+    let i = 0, o = 0;
+    sheet.querySelectorAll('.dayrow').forEach((r) => { const a = C.parseNum(r.querySelector('[name=d_amt]').value); if (r.querySelector('[name=d_kind]').value === 'in') i += a; else o += a; });
+    el.innerHTML = `${i ? `<span class="in">Masuk ${rp(i)}</span>` : ''}${i && o ? ' · ' : ''}${o ? `<span class="out">Keluar ${rp(o)}</span>` : ''}`;
+  }
+  async function submitDaily(f) {
+    const rows = [...f.querySelectorAll('.dayrow')].map((r) => ({
+      kind: r.querySelector('[name=d_kind]').value, projectId: r.querySelector('[name=d_proj]').value, category: r.querySelector('[name=d_cat]').value,
+      amount: C.parseNum(r.querySelector('[name=d_amt]').value), termId: r.querySelector('[name=d_term]').value, note: r.querySelector('[name=d_note]').value.trim(),
+    })).filter((r) => r.amount > 0);
+    if (!rows.length) { toast('Isi jumlah minimal satu baris'); return false; }
+    const date = f.date.value, accountId = f.accountId.value;
+    for (const r of rows) {
+      await save('tx', { kind: r.kind, date, amount: r.amount, category: r.category, accountId, projectId: r.projectId, termId: r.kind === 'in' && r.projectId ? r.termId : '', liabilityId: '', note: r.note });
+      if (r.kind === 'in' && r.termId) await markBilled(r.termId);
+    }
+    const lp = rows[rows.length - 1].projectId; try { localStorage.setItem('wk_last_proj', lp); } catch (e) { /* abaikan */ }
+    return rows.length;
   }
 
   function payForm(term) {
@@ -521,6 +593,9 @@
         const rec = await (kind === 'invoice' ? submitInvoice(f, d, id) : submitReceipt(d, id));
         if (!rec) return;
         render(); docView(rec); toast('Tersimpan'); return;
+      } else if (kind === 'daily') {
+        const n = await submitDaily(f); if (!n) return;
+        closeSheet(); render(); toast(`${n} transaksi tersimpan`); return;
       } else if (kind === 'liab') {
         const old = id ? byId(id) : null;
         await save('liability', Object.assign({}, old, { id, name: d.name.trim(), total: C.parseNum(d.total), paidBefore: C.parseNum(d.paidBefore), monthly: C.parseNum(d.monthly), category: d.category, note: d.note.trim() }));
@@ -591,6 +666,9 @@
         await save('config', Object.assign({}, R.get('config') || {}, { id: 'config', city: v('#bCity'), phone: v('#bPhone'), email: v('#bEmail'), tagline: v('#bTag'), bank: v('#bBank'), accName: v('#bAccName'), accNo: v('#bAccNo'), payDays: Number(v('#bDays')) || 0, invPrefix: v('#bInvP') || 'INV', kwPrefix: v('#bKwP') || 'KWC', invNotes: $('#bNotes').value.trim() }));
         render(); toast('Tersimpan'); break;
       }
+      case 'daily': dailyForm({ projectId: el.dataset.project, kind: el.dataset.kind }); break;
+      case 'add-dayrow': { const rows = $('#dayRows'), last = rows.lastElementChild; rows.insertAdjacentHTML('beforeend', dayRow(last ? { kind: last.querySelector('[name=d_kind]').value, projectId: last.querySelector('[name=d_proj]').value } : {})); refreshDayRow(rows.lastElementChild); rows.lastElementChild.querySelector('[name=d_amt]').focus(); break; }
+      case 'rm-dayrow': if (sheet.querySelectorAll('.dayrow').length > 1) { el.closest('.dayrow').remove(); updDayTotal(); } break;
       case 'new-liab': liabForm(null); break;
       case 'edit-liab': liabForm(byId(id)); break;
       case 'del-liab': if (of('tx').some((t) => t.liabilityId === id) && !confirm('Kewajiban ini punya pembayaran tercatat. Pembayarannya tetap ada sebagai pengeluaran. Hapus?')) return; if (confirm('Hapus kewajiban ini?')) { await del(id); closeSheet(); render(); } break;
@@ -606,6 +684,7 @@
     if (t.classList.contains('money')) t.value = fmtMoneyInput(t.value);
     if (t.matches('.termrow [name=percent]')) updTermSum();
     if (t.closest('form[data-form=invoice]')) updInvTotal();
+    if (t.closest('form[data-form=daily]')) updDayTotal();
     if (window.Studio) window.Studio.input(e);
     if (t.id === 'fQ') { ui.q = t.value; clearTimeout(render._t); render._t = setTimeout(() => { render(); const q = $('#fQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 250); }
   });
@@ -615,6 +694,9 @@
     if (t.id === 'fPeriod') { ui.period = t.value; try { localStorage.setItem('wk_period', t.value); } catch (err) { /* abaikan */ } render(); }
     else if (t.id === 'fMonth') { ui.month = t.value; render(); }
     else if (t.id === 'fKind') { ui.kind = t.value; render(); }
+    else if (t.id === 'fProj') { ui.proj = t.value; render(); }
+    else if (t.matches && t.matches('.dayrow [name=d_cat]')) t.dataset.touched = '1';
+    else if (t.matches && t.matches('.dayrow [name=d_kind], .dayrow [name=d_proj]')) refreshDayRow(t.closest('.dayrow'));
     else if (t.id === 'fImport') importJson(t.files[0]);
     else if (t.id === 'tPreset' && t.value !== '') {
       const pcts = C.PRESETS[Number(t.value)].percents, labels = C.makeTermLabels(pcts), box = $('#tRows');
