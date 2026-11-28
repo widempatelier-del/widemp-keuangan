@@ -179,15 +179,18 @@ td.num,th.num{text-align:right;white-space:nowrap}
   #view>.card:not(.rep){display:none}
 }
 </style>
+<link rel="stylesheet" href="../theme.css">
+<script>if(/[?&]embed=gaji/.test(location.search))document.documentElement.classList.add("embed")</script>
+<style>html.embed .side,html.embed .tabs{display:none!important}html.embed .app{display:block}html.embed .main{margin:0!important;padding:0!important}html.embed body,html.embed .app{background:transparent!important}html.embed #view{padding:12px!important;max-width:none}</style>
 </head>
-<body>
+<body class="app-pry">
 <div class="app">
   <aside class="side"><div class="brand">WIDEMP ATELIER<small>Pemantau Proyek</small></div><nav class="nav" id="nav"></nav></aside>
   <div class="main">
     <header class="top">
       <select id="psel" aria-label="Pilih proyek"></select>
       <button class="btn sm" id="newp">+ Proyek</button>
-      <span class="sync" id="sync"><span class="dot" id="sdot"></span><span class="lbl" id="stxt">Memuat…</span></span>
+      <button class="wd-theme" type="button" title="Mode terang/gelap" aria-label="Mode terang/gelap"></button><span class="sync" id="sync"><span class="dot" id="sdot"></span><span class="lbl" id="stxt">Memuat…</span></span>
     </header>
     <nav class="tabs" id="tabs"></nav>
     <main id="view"></main>
@@ -592,7 +595,7 @@ async function copyText(t){try{await navigator.clipboard.writeText(t);toast('Ter
 const VIEWS=[
  ['ringkasan','Ringkasan','◧'],['jadwal','Jadwal & Gantt','▤'],['tugas','Tugas Tim','✓'],['dokumen','Dokumen & Revisi','▣'],['persetujuan','Persetujuan Klien','✍'],
  ['rab','RAB & Biaya','Σ'],['vendor','Vendor & Subkon','⚒'],['po','PO & Termin','₨'],['lapangan','Laporan Lapangan','☀'],['gaji','Gaji Tukang','₲'],['pengawasan','Pengawasan','◎'],['waktu','Waktu & Kapasitas','◷'],['diskusi','Diskusi Proyek','✉'],['laporan','Laporan & Cetak','⎙'],['pengaturan','Pengaturan','⚙']];
-let V=(location.hash||'').slice(1);if(!VIEWS.some(v=>v[0]===V))V=lsGet('widemp_view')||'ringkasan';if(!VIEWS.some(v=>v[0]===V))V='ringkasan';
+const EMBED=document.documentElement.classList.contains('embed');let V=(location.hash||'').slice(1);if(EMBED)V='gaji';if(!VIEWS.some(v=>v[0]===V))V=lsGet('widemp_view')||'ringkasan';if(!VIEWS.some(v=>v[0]===V))V='ringkasan';
 window.addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(VIEWS.some(v=>v[0]===h)){V=h;lsSet('widemp_view',V);render();window.scrollTo(0,0)}});
 function go(v){if(location.hash.slice(1)===v){V=v;render()}else location.hash=v}
 const UI={taskFilter:'',chatFilter:'',showTasks:true,docFilter:''};
@@ -646,6 +649,9 @@ R.ringkasan=()=>{
   const ms=[];S.projects.forEach(p=>p.phases.forEach(f=>{if(f.milestone&&(+f.progress||0)<100&&f.end<=addD(t,14))ms.push({p,f})}));ms.sort((a,b)=>a.f.end<b.f.end?-1:1);
   const wk=weekRange();
   let h=(S.projects.length&&!S.tasks.length&&!lsGet('wp_mig_hide')?'<div class="card" style="border-color:var(--acc)"><h3>Punya data lengkap dari versi lama?</h3><p class="small mut">Proyek di bawah dibuat otomatis dari aplikasi keuangan (tahapan standar). Data versi lama (link claude.ai) berisi tahapan, tanggal, catatan, dan tugas yang sudah disusun — tempel di sini untuk menggantikan.</p><div class="mact" style="margin-top:0"><button class="btn pri" onclick="WP.restore()">Tempel data dari versi lama</button><button class="btn ghost" onclick="WP.hideMig()">Tidak perlu</button></div></div>':'')+(!S.projects.length?'<div class="card" style="border-color:var(--acc)"><h3>Selamat datang di Pemantau Proyek</h3><p class="small mut">Pindahkan data dari versi lama (link claude.ai), atau tambahkan proyek dari aplikasi keuangan lewat kartu Keuangan di bawah.</p><button class="btn pri" onclick="WP.restore()">Tempel data dari versi lama</button></div>':'')+'<div class="hd"><h2>Ringkasan</h2><span class="sp"></span><span class="mut small">'+new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'</span></div>';
+  {const avg=act.length?Math.round(act.reduce((s,p)=>s+(projProgress(p)||0),0)/act.length):0;
+  h+='<h1 class="wd-greet" style="margin:0 0 12px">'+(window.WDMotion?WDMotion.greet():'Halo')+', <span>Widemp</span></h1>'+
+    '<div class="wd-hero"><div class="h-top"><span class="h-tag">Proyek berjalan</span><span>'+late.length+' tugas terlambat</span></div><div class="h-big wd-count">'+act.length+' proyek</div><div class="h-bar"><i data-w="'+avg+'%"></i></div><div class="h-sub"><span>Rata-rata progres '+avg+'%</span><span>Siap ditagih '+rpS(readyAmt)+'</span></div><div class="h-act"><button class="h-btn" onclick="location.hash=\'laporan\'">⎙ Laporan</button><button class="h-btn" onclick="location.hash=\'gaji\'" style="background:rgba(255,255,255,.2);color:#fff">₲ Gaji tukang</button></div></div>';}
   h+='<div class="grid g4" style="margin-bottom:14px">'+
     kpi('Proyek berjalan',act.length,'')+kpi('Tugas terlambat',late.length,late.length?'bad':'')+
     kpi('Siap ditagih',rpS(readyAmt),ready.length?'ok':'',ready.length+' termin')+kpi('Temuan pengawasan terbuka',S.defects.filter(x=>x.status!=='Ditutup').length,S.defects.some(x=>x.status!=='Ditutup'&&x.due&&x.due<t)?'bad':'',pendCO.length+' change order menunggu')+'</div>';
@@ -1703,5 +1709,6 @@ window.addEventListener('online',()=>{if(clientId())syncNow(false)});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
 </script>
+<script src="../motion.js"></script>
 </body>
 </html>

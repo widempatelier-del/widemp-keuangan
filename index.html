@@ -13,8 +13,9 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme.css">
 </head>
-<body>
+<body class="app-keu">
 <header class="top">
   <div class="top-in">
     <a class="brand" href="#" data-act="go-dash"><img src="assets/logo-mark.png" alt=""><span class="div"></span><span class="wm"><b id="biz">WIDEMP ATELIER</b><small>Architecture • Interior • Supervision • Production</small></span></a>
@@ -24,9 +25,11 @@
       <button data-tab="quote"><svg viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5zM15 3v4h4M8 11h8M8 14.5h8M8 18h5"/></svg>Penawaran</button>
       <button data-tab="doc"><svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5"/></svg>Invoice</button>
       <button data-tab="cash"><svg viewBox="0 0 24 24"><path d="M3 7h18v10H3zM12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/></svg>Kas</button>
+      <button data-tab="gaji"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3 3 0 010 6M18 14c2 .6 3 2.6 3 6"/></svg>Gaji</button>
+      <button data-tab="pajak"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3"/></svg>Pajak</button>
       <button data-tab="data"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>Data</button>
     </nav>
-    <div class="me"><a class="applink" href="proyek/" title="Buka Pemantau Proyek">📐 Proyek</a><span class="st" id="syncText">Belum terhubung</span><button class="avatar" id="syncPill" type="button" title="Sinkron">WA<i></i></button></div>
+    <div class="me"><button class="wd-theme" type="button" title="Mode terang/gelap" aria-label="Mode terang/gelap"></button><a class="applink" href="proyek/" title="Buka Pemantau Proyek">📐 Proyek</a><span class="st" id="syncText">Belum terhubung</span><button class="avatar" id="syncPill" type="button" title="Sinkron">WA<i></i></button></div>
   </div>
 </header>
 <main id="view"></main>
@@ -41,5 +44,6 @@
 <script src="studio-pdf.js"></script>
 <script src="studio.js"></script>
 <script src="app.js"></script>
+<script src="motion.js"></script>
 </body>
 </html>

@@ -91,7 +91,7 @@
     self.PDF_LOGO = cfg().logo || null;
     document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === ui.tab));
     const ST = window.Studio;
-    const fn = { dash: vDash, proj: ui.pid ? vProjectDetail : vProjects, cash: vCash, doc: vDocs, set: vSettings, quote: ST ? ST.vQuotes : vDash, data: ST ? ST.vData : vSettings }[ui.tab] || vDash;
+    const fn = { dash: vDash, gaji: vGaji, pajak: vPajak, proj: ui.pid ? vProjectDetail : vProjects, cash: vCash, doc: vDocs, set: vSettings, quote: ST ? ST.vQuotes : vDash, data: ST ? ST.vData : vSettings }[ui.tab] || vDash;
     const keepScroll = window.scrollY;
     view.innerHTML = fn();
     window.scrollTo(0, keepScroll);
@@ -106,6 +106,99 @@
     if (t.billed) return t.dueDate && t.dueDate < today ? '<span class="badge late">Terlambat</span>' : '<span class="badge bill">Ditagih</span>';
     return '<span class="badge">Belum ditagih</span>';
   };
+
+  /* ---------------- Pajak (PT Perorangan, per KBLI) ---------------- */
+  const TAXCAT = {
+    kk: { l: 'Konsultansi konstruksi', d: 'Desain arsitektur, perencanaan, pengawasan/MK (KBLI 71101/71102) · PPh Final Pasal 4(2) jasa konstruksi (PP 9/2022)' },
+    pk: { l: 'Pekerjaan konstruksi', d: 'Bangun/renovasi/pemasangan fisik · PPh Final Pasal 4(2) jasa konstruksi (PP 9/2022)' },
+    umkm: { l: 'Jasa non-konstruksi', d: 'Desain interior (KBLI 74120), produk, jasa lain · PPh Final UMKM 0,5% (PP 55/2022 s.t.d.d. PP 20/2026)' },
+  };
+  const taxCfg = () => Object.assign({ sbu: false, umkm: true }, cfg().tax || {});
+  const taxRate = (cat) => { const t = taxCfg(); return cat === 'kk' ? (t.sbu ? 3.5 : 6) : cat === 'pk' ? (t.sbu ? 1.75 : 4) : (t.umkm ? 0.5 : 0); };
+  function taxCatOf(p) {
+    if (!p) return 'umkm';
+    if (p.taxCat && TAXCAT[p.taxCat]) return p.taxCat;
+    const s = ((p.service || '') + ' ' + (p.name || '')).toLowerCase();
+    if (/interior|furnitur|produk|mebel/.test(s) && !/arsitek/.test(s)) return 'umkm';
+    if (/bangun|renovasi|build|konstruksi fisik|pemasangan|instalasi|kontraktor/.test(s)) return 'pk';
+    if (/pengawas|arsitek|desain|design|drafter|gambar|ded|konsult|perencana/.test(s)) return 'kk';
+    return 'umkm';
+  }
+  const monthName = (k) => { const [y, m] = k.split('-'); return new Date(+y, +m - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }); };
+  const nextMonth15 = (k) => { const [y, m] = k.split('-').map(Number); const d = new Date(y, m, 15); return C.isoDate(d); };
+  function taxYear(year) {
+    const accounts = of('account'), txs = of('tx'), ins = C.usahaTxs(accounts, txs).filter((t) => t.kind === 'in' && (t.date || '').slice(0, 4) === String(year));
+    const paid = of('tx').filter((t) => t.kind === 'out' && t.taxKey);
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const k = year + '-' + String(m).padStart(2, '0'), l = ins.filter((t) => t.date.slice(0, 7) === k);
+      const umkmBase = l.filter((t) => taxCatOf(byId(t.projectId)) === 'umkm').reduce((s, t) => s + t.amount, 0);
+      const js = {}; // per proyek konstruksi
+      l.filter((t) => taxCatOf(byId(t.projectId)) !== 'umkm').forEach((t) => { const p = byId(t.projectId), cat = taxCatOf(p); const o = js[t.projectId] = js[t.projectId] || { p, cat, base: 0, wh: !!(p && p.taxWithheld) }; o.base += t.amount; });
+      const jl = Object.values(js).map((o) => Object.assign(o, { rate: taxRate(o.cat), tax: Math.round(o.base * taxRate(o.cat) / 100) }));
+      const umkmTax = Math.round(umkmBase * taxRate('umkm') / 100), jsSelf = jl.filter((o) => !o.wh).reduce((s, o) => s + o.tax, 0), jsWh = jl.filter((o) => o.wh).reduce((s, o) => s + o.tax, 0);
+      const pU = paid.filter((t) => t.taxKey === k + '|umkm').reduce((s, t) => s + t.amount, 0), pJ = paid.filter((t) => t.taxKey === k + '|jaskon').reduce((s, t) => s + t.amount, 0);
+      months.push({ k, omzet: l.reduce((s, t) => s + t.amount, 0), umkmBase, umkmTax, jl, jsSelf, jsWh, pU, pJ, due: nextMonth15(k) });
+    }
+    return months;
+  }
+  function vPajak() {
+    const today = C.isoDate(), year = ui.taxYear || today.slice(0, 4), M = taxYear(year), t = taxCfg(), curK = today.slice(0, 7);
+    const omzet = M.reduce((s, m) => s + m.omzet, 0), pct = Math.min(100, Math.round(omzet / 4.8e9 * 100));
+    const owe = M.filter((m) => m.k < curK || m.k === curK).reduce((s, m) => s + Math.max(0, m.umkmTax - m.pU) + Math.max(0, m.jsSelf - m.pJ), 0);
+    const totTax = M.reduce((s, m) => s + m.umkmTax + m.jsSelf + m.jsWh, 0);
+    const late = M.filter((m) => m.due < today && (m.umkmTax - m.pU > 0 || m.jsSelf - m.pJ > 0));
+    const projects = of('project').filter((p) => p.status !== 'batal');
+    return `<div class="ptitle"><div class="tx"><h1>Pajak</h1><p>Perkiraan pajak PT Perorangan per jenis jasa (KBLI): PPh Final UMKM 0,5% dan PPh Final jasa konstruksi.</p><div class="rule"></div></div>
+      <label class="period">${ICON.cal}<select id="fTaxYear">${[0, 1, 2].map((i) => String(+today.slice(0, 4) - i)).map((y) => opt(y, 'Tahun ' + y, y === year)).join('')}</select></label></div>
+    <div class="wd-hero"><div class="h-top"><span class="h-tag">Pajak belum disetor s/d bulan ini</span><span>${late.length ? late.length + ' masa lewat jatuh tempo' : 'Jatuh tempo tiap tgl 15 bulan berikutnya'}</span></div>
+      <div class="h-big wd-count">${rp(owe)}</div>
+      <div class="h-bar"><i data-w="${pct}%"></i></div><div class="h-sub"><span>Omzet ${year}: ${rp(omzet)}</span><span>${pct}% dari batas Rp4,8 M</span></div>
+      <div class="h-act"><button class="h-btn" data-act="tax-set">⚙ Pengaturan pajak</button><span class="h-note">Total pajak ${year}: ${rp(totTax)}</span></div></div>
+    ${pct >= 80 ? `<div class="note" style="border-color:#e5484d">Omzet sudah ${pct}% dari Rp4,8 miliar. Jika terlampaui, tahun berikutnya tidak bisa memakai PPh Final 0,5% dan wajib menjadi PKP (PPN). Konsultasikan dengan konsultan pajak.</div>` : ''}
+    <div class="panel"><div class="panel-h"><h3>Per masa pajak (bulan)</h3></div>
+      <div style="overflow-x:auto"><table class="act"><thead><tr><th>Masa</th><th>Omzet diterima</th><th>PPh Final 0,5%</th><th>PPh Final jaskon (setor sendiri)</th><th>Dipotong klien</th><th>Jatuh tempo</th><th>Status</th></tr></thead><tbody>
+      ${M.filter((m) => m.omzet || m.pU || m.pJ || m.k === curK).reverse().map((m) => {
+        const sisaU = Math.max(0, m.umkmTax - m.pU), sisaJ = Math.max(0, m.jsSelf - m.pJ), done = !sisaU && !sisaJ;
+        return `<tr><td><b>${monthName(m.k)}</b>${m.jl.length ? `<div class="muted-s">${m.jl.map((o) => esc((o.p ? o.p.name : 'Tanpa proyek') + ' ' + String(o.rate).replace('.', ',') + '% × ' + rp(o.base))).join('<br>')}</div>` : ''}</td>
+          <td>${rp(m.omzet)}</td><td>${rp(m.umkmTax)}${m.pU ? `<div class="muted-s">disetor ${rp(m.pU)}</div>` : ''}</td><td>${rp(m.jsSelf)}${m.pJ ? `<div class="muted-s">disetor ${rp(m.pJ)}</div>` : ''}</td><td>${m.jsWh ? rp(m.jsWh) + '<div class="muted-s">minta bukti potong</div>' : '-'}</td>
+          <td>${fmtDate(m.due)}</td><td>${!m.omzet ? '<span class="badge">Nihil</span>' : done ? '<span class="badge ok">Sudah disetor</span>' : `<span class="badge ${m.due < today ? 'late' : 'bill'}">${m.due < today ? 'Terlambat' : 'Belum'}</span>`}
+          ${sisaU ? `<div><button class="btn sm primary" data-act="tax-pay" data-k="${m.k}|umkm" data-amt="${sisaU}" style="margin-top:6px">Setor 0,5% ${rp(sisaU)}</button></div>` : ''}${sisaJ ? `<div><button class="btn sm primary" data-act="tax-pay" data-k="${m.k}|jaskon" data-amt="${sisaJ}" style="margin-top:6px">Setor jaskon ${rp(sisaJ)}</button></div>` : ''}</td></tr>`;
+      }).join('') || '<tr><td colspan="7" class="empty">Belum ada pemasukan di tahun ini.</td></tr>'}</tbody></table></div></div>
+    <div class="panel"><div class="panel-h"><h3>Jenis pajak per proyek</h3></div><div class="s muted" style="margin:-4px 0 8px">Ditebak dari jenis layanan. Ketuk untuk mengubah, termasuk bila klien badan/instansi memotong pajak langsung.</div>
+      ${projects.map((p) => { const c = taxCatOf(p); return `<div class="row click" data-act="tax-proj" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(TAXCAT[c].l)} · tarif ${String(taxRate(c)).replace('.', ',')}%${c !== 'umkm' ? (p.taxWithheld ? ' · dipotong klien' : ' · setor sendiri') : ''}${p.taxCat ? '' : ' · <i>otomatis</i>'}</div></div><span class="badge">${esc(p.service || '-')}</span></div>`; }).join('') || '<div class="empty">Belum ada proyek.</div>'}</div>
+    <div class="panel"><div class="panel-h"><h3>Dasar perhitungan</h3></div><div class="s" style="line-height:1.7">
+      • <b>PPh Final UMKM 0,5%</b> dari omzet bruto bulanan untuk jasa non-konstruksi (mis. desain interior). PT Perorangan dapat memakainya tanpa batas waktu selama omzet ≤ Rp4,8 M/tahun (PP 20/2026). Bila punya Surat Keterangan PP 55, klien badan tidak memotong PPh 23.<br>
+      • <b>PPh Final jasa konstruksi</b> (PP 9/2022): konsultansi konstruksi ${t.sbu ? '3,5% (punya SBU/SKK)' : '6% (tanpa SBU/SKK; 3,5% bila punya)'}; pekerjaan konstruksi ${t.sbu ? '1,75%' : '4% (tanpa SBU)'}. Penghasilan ini tidak ikut dihitung 0,5%. KBLI konstruksi di NIB tidak otomatis membuat semua transaksi kena tarif ini — tergantung jenis pekerjaannya.<br>
+      • Belum PKP, jadi tidak memungut PPN. Setor paling lambat tgl 15 bulan berikutnya; SPT Tahunan Badan paling lambat 30 April.<br>
+      <span class="muted">Ini perkiraan untuk membantu perencanaan, bukan nasihat pajak. Pastikan dengan konsultan pajak atau Kring Pajak 1500200.</span></div></div>`;
+  }
+  function taxSetForm() {
+    const t = taxCfg();
+    openSheet(`<form data-form="taxset">${head('Pengaturan pajak')}
+      <label class="chk"><input type="checkbox" name="umkm" ${t.umkm ? 'checked' : ''}> Memakai PPh Final UMKM 0,5% (PT Perorangan, omzet ≤ Rp4,8 M)</label>
+      <label class="chk"><input type="checkbox" name="sbu" ${t.sbu ? 'checked' : ''}> Punya SBU / sertifikat kompetensi konstruksi (tarif 3,5% & 1,75%)</label>
+      <div class="note">Tanpa SBU/SKK: konsultansi konstruksi 6%, pekerjaan konstruksi 4%.</div>${foot()}</form>`);
+  }
+  function taxProjForm(p) {
+    const c = taxCatOf(p);
+    openSheet(`<form data-form="taxproj" data-id="${p.id}">${head('Jenis pajak – ' + esc(p.name))}
+      <label>Jenis jasa</label><select name="taxCat"><option value="">Otomatis dari jenis layanan (${esc(TAXCAT[c].l)})</option>${Object.entries(TAXCAT).map(([k, v]) => opt(k, v.l, p.taxCat === k)).join('')}</select>
+      <div class="s muted" style="margin:6px 0">${Object.values(TAXCAT).map((v) => '<b>' + v.l + '</b>: ' + v.d).join('<br>')}</div>
+      <label class="chk"><input type="checkbox" name="taxWithheld" ${p.taxWithheld ? 'checked' : ''}> Klien (badan/instansi) memotong PPh langsung dan memberi bukti potong</label>${foot()}</form>`);
+  }
+  function taxPayForm(key, amt) {
+    const [k, kind] = key.split('|'), acc = of('account').filter((a) => (a.scope || 'usaha') === 'usaha');
+    openSheet(`<form data-form="taxpay" data-key="${key}">${head('Setor ' + (kind === 'umkm' ? 'PPh Final 0,5%' : 'PPh Final jasa konstruksi') + ' – ' + monthName(k))}
+      <div class="cols"><div><label>Tanggal setor</label><input type="date" name="date" value="${C.isoDate()}" required></div><div><label>Jumlah (Rp)</label><input name="amount" class="money" inputmode="numeric" value="${fmtMoneyInput(amt)}" required></div></div>
+      <label>Dari akun</label><select name="accountId">${acc.map((a) => opt(a.id, a.name)).join('')}</select>
+      <label>NTPN / kode billing (opsional)</label><input name="ntpn">${foot()}</form>`);
+  }
+  /* ---------------- Gaji tukang (data bersama aplikasi Proyek) ---------------- */
+  function vGaji() {
+    return `<div class="ptitle"><div class="tx"><h1>Gaji Tukang</h1><p>Absensi, lembur, kasbon, penggajian & slip upah. Data sama persis dengan menu Gaji di aplikasi Proyek, dan setiap pembayaran otomatis tercatat sebagai pengeluaran proyek di Kas.</p><div class="rule"></div></div></div>
+      <div class="panel" style="padding:0;overflow:hidden"><iframe id="gajiFrame" src="proyek/?embed=gaji#gaji" title="Gaji tukang" style="width:100%;height:calc(100dvh - 210px);min-height:560px;border:0;display:block;background:transparent"></iframe></div>`;
+  }
 
   /* ----- Ringkasan ----- */
   const ICON = {
@@ -187,8 +280,9 @@
     const opts = [['m1', 'Bulan ini'], ['m3', '3 bulan terakhir'], ['m6', '6 bulan terakhir'], ['y', 'Tahun ini']];
     return `
     <button class="fab" data-act="daily" aria-label="Catat transaksi harian">+</button>
-    <div class="ptitle"><div class="tx"><h1>Keuangan Proyek</h1><p>Pantau arus kas dan performa proyek dalam satu ruang.</p><div class="rule"></div></div>
+    <div class="ptitle"><div class="tx"><h1 class="wd-greet">${(window.WDMotion ? WDMotion.greet() : 'Halo')}, <span>${esc((cfg().businessName || 'Widemp').split(' ')[0])}</span></h1><p>Pantau arus kas dan performa proyek dalam satu ruang.</p><div class="rule"></div></div>
       <label class="period" title="Periode">${ICON.cal}<select id="fPeriod" aria-label="Periode">${opts.map(([k, l]) => `<option value="${k}" ${ui.period === k ? 'selected' : ''}>${k === ui.period ? cur.label : l}</option>`).join('')}</select></label></div>
+    ${(() => { const b = billingTotals(), pc = b.contract ? Math.round(b.received / b.contract * 100) : 0; return `<div class="wd-hero"><div class="h-top"><span class="h-tag">Saldo kas usaha</span><span>${active.length} proyek aktif</span></div><div class="h-big wd-count">${rp(saldo)}</div><div class="h-bar"><i data-w="${Math.min(100, pc)}%"></i></div><div class="h-sub"><span>Kontrak terbayar ${pc}% · ${rp(b.received)} dari ${rp(b.contract)}</span><span>Sisa tagihan ${rp(b.remaining)}</span></div><div class="h-act"><button class="h-btn" data-act="daily">+ Catat transaksi</button><button class="h-btn" data-act="go-pajak" style="background:rgba(255,255,255,.2);color:#fff">Pajak bulan ini</button></div></div>`; })()}
     <div class="grid g4">
       ${kpi(ICON.up, 'Total Pendapatan', rp(T.in), delta(T.in, P.in, true))}
       ${kpi(ICON.cart, 'Pengeluaran', rp(T.out), delta(T.out, P.out, false))}
@@ -611,6 +705,14 @@
       } else if (kind === 'liab') {
         const old = id ? byId(id) : null;
         await save('liability', Object.assign({}, old, { id, name: d.name.trim(), total: C.parseNum(d.total), paidBefore: C.parseNum(d.paidBefore), monthly: C.parseNum(d.monthly), category: d.category, note: d.note.trim() }));
+      } else if (kind === 'taxset') {
+        await save('config', Object.assign({}, R.get('config') || {}, { id: 'config', tax: { umkm: !!d.umkm, sbu: !!d.sbu } }));
+      } else if (kind === 'taxproj') {
+        const p = byId(id); await save('project', Object.assign({}, p, { taxCat: d.taxCat || '', taxWithheld: !!d.taxWithheld }));
+      } else if (kind === 'taxpay') {
+        const amount = C.parseNum(d.amount); if (!amount) return toast('Jumlah belum diisi');
+        const key = f.dataset.key, [mk, tk] = key.split('|');
+        await save('tx', { kind: 'out', date: d.date, amount, category: 'Pajak', accountId: d.accountId, projectId: '', termId: '', liabilityId: '', taxKey: key, note: (tk === 'umkm' ? 'PPh Final 0,5% masa ' : 'PPh Final jasa konstruksi masa ') + monthName(mk) + (d.ntpn ? ' · NTPN ' + d.ntpn.trim() : '') });
       } else if (kind === 'account') {
         const old = id ? byId(id) : null;
         await save('account', Object.assign({}, old, { id, name: d.name.trim(), scope: d.scope, opening: C.parseNum(d.opening) }));
@@ -690,6 +792,10 @@
       case 'edit-liab': liabForm(byId(id)); break;
       case 'del-liab': if (of('tx').some((t) => t.liabilityId === id) && !confirm('Kewajiban ini punya pembayaran tercatat. Pembayarannya tetap ada sebagai pengeluaran. Hapus?')) return; if (confirm('Hapus kewajiban ini?')) { await del(id); closeSheet(); render(); } break;
       case 'pay-liab': { const l = byId(id), sm = C.liabilitySummary(l, of('tx'), C.monthKey(C.isoDate())); txForm(null, { kind: 'out', liabilityId: l.id, category: l.category, amount: Math.min(l.monthly || sm.remaining, sm.remaining) }); break; }
+      case 'go-pajak': ui.tab = 'pajak'; ui.pid = null; render(); window.scrollTo(0, 0); break;
+      case 'tax-set': taxSetForm(); break;
+      case 'tax-proj': taxProjForm(byId(id)); break;
+      case 'tax-pay': taxPayForm(el.dataset.k, Number(el.dataset.amt) || 0); break;
       case 'drive-connect': driveConnect(); break;
       case 'drive-off': DS.disconnect(); render(); toast('Terputus dari Drive (data lokal tetap ada)'); break;
       case 'export': exportJson(); break;
@@ -709,6 +815,7 @@
     const t = e.target;
     if (window.Studio && window.Studio.change(e)) return;
     if (t.id === 'fPeriod') { ui.period = t.value; try { localStorage.setItem('wk_period', t.value); } catch (err) { /* abaikan */ } render(); }
+    else if (t.id === 'fTaxYear') { ui.taxYear = t.value; render(); }
     else if (t.id === 'fMonth') { ui.month = t.value; render(); }
     else if (t.id === 'fKind') { ui.kind = t.value; render(); }
     else if (t.id === 'fProj') { ui.proj = t.value; render(); }

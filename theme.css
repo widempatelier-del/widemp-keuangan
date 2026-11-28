@@ -1,0 +1,140 @@
+/* ==========================================================================
+   Widemp – tema "glass" bersama (Keuangan & Pemantau Proyek)
+   Terang/gelap, kartu kaca, menu pil, animasi masuk kabur→tajam
+   ========================================================================== */
+:root{
+  --wd-bg:#ececeb; --wd-bg2:#f6f6f5; --wd-glass:rgba(255,255,255,.72); --wd-glass2:rgba(255,255,255,.55);
+  --wd-stroke:rgba(255,255,255,.85); --wd-line:rgba(17,17,17,.08); --wd-ink:#111111; --wd-mut:#7b7b7b;
+  --wd-pill:#111111; --wd-pill-ink:#ffffff; --wd-or1:#ff7a45; --wd-or2:#f0461b; --wd-or:#f2541b;
+  --wd-shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px -12px rgba(0,0,0,.12); --wd-r:22px; --wd-blur:saturate(160%) blur(18px);
+  color-scheme:light;
+}
+html[data-theme=dark]{
+  --wd-bg:#0b0b0b; --wd-bg2:#141414; --wd-glass:rgba(28,28,28,.72); --wd-glass2:rgba(36,36,36,.6);
+  --wd-stroke:rgba(255,255,255,.06); --wd-line:rgba(255,255,255,.08); --wd-ink:#f3f3f3; --wd-mut:#9a9a9a;
+  --wd-pill:#f3f3f3; --wd-pill-ink:#111111; --wd-shadow:0 1px 2px rgba(0,0,0,.5),0 16px 40px -16px rgba(0,0,0,.8);
+  color-scheme:dark;
+}
+html{background:var(--wd-bg)}
+body{background:radial-gradient(1200px 600px at 85% -10%,var(--wd-bg2),transparent 60%),var(--wd-bg)!important;background-attachment:fixed!important}
+
+/* ---------- animasi ---------- */
+@keyframes wdIn{from{opacity:0;filter:blur(10px);transform:translateY(10px) scale(.985)}to{opacity:1;filter:none;transform:none}}
+@keyframes wdPop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes wdSheen{0%{transform:translateX(-120%) skewX(-20deg)}100%{transform:translateX(220%) skewX(-20deg)}}
+@keyframes wdGlow{0%,100%{opacity:.55}50%{opacity:.9}}
+.wd-in{animation:wdIn .6s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i,0)*55ms)}
+@media (prefers-reduced-motion:reduce){.wd-in{animation:none}}
+::view-transition-old(root),::view-transition-new(root){animation:none;mix-blend-mode:normal}
+
+/* ---------- tombol tema ---------- */
+.wd-theme{width:38px;height:38px;border-radius:50%;border:1px solid var(--wd-line);background:var(--wd-glass);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);display:grid;place-items:center;cursor:pointer;color:var(--wd-ink);flex:none;transition:transform .2s}
+.wd-theme:hover{transform:rotate(-15deg)}
+.wd-theme svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- kartu hero oranye ---------- */
+.wd-hero{position:relative;overflow:hidden;border-radius:var(--wd-r);padding:22px 24px;color:#fff;background:radial-gradient(120% 140% at 100% 0%,#ff9a6b 0%,transparent 55%),linear-gradient(135deg,var(--wd-or1),var(--wd-or2));box-shadow:0 20px 40px -18px rgba(240,70,27,.55);margin-bottom:16px}
+.wd-hero::after{content:"";position:absolute;inset:0 auto 0 0;width:40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);animation:wdSheen 3.2s 1s ease-in-out infinite}
+.wd-hero .h-top{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:12px;opacity:.95}
+.wd-hero .h-tag{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);padding:4px 12px;border-radius:99px;font-weight:600}
+.wd-hero .h-big{font-size:clamp(30px,6vw,46px);font-weight:700;letter-spacing:-.02em;line-height:1.05;margin:16px 0 4px}
+.wd-hero .h-big small{font-size:14px;font-weight:500;opacity:.85;margin-left:6px;letter-spacing:0}
+.wd-hero .h-bar{height:6px;border-radius:99px;background:rgba(255,255,255,.3);overflow:hidden;margin:14px 0 6px}
+.wd-hero .h-bar i{display:block;height:100%;border-radius:99px;background:#fff;width:0;transition:width 1.2s cubic-bezier(.2,.7,.2,1)}
+.wd-hero .h-sub{display:flex;justify-content:space-between;gap:10px;font-size:12px;opacity:.9;flex-wrap:wrap}
+.wd-hero .h-act{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
+.wd-hero .h-btn{background:#fff;color:#111;border:0;border-radius:99px;padding:9px 16px;font:inherit;font-weight:600;font-size:13px;cursor:pointer;text-decoration:none;display:inline-flex;gap:6px;align-items:center}
+.wd-hero .h-note{font-size:12px;opacity:.9}
+.wd-greet{font-size:clamp(26px,4vw,38px);font-weight:600;letter-spacing:-.02em;line-height:1.1;margin:4px 0 4px}
+.wd-greet span{color:var(--wd-mut)}
+
+/* ======================= Aplikasi KEUANGAN ======================= */
+.app-keu{--bg:transparent;--card:var(--wd-glass);--ink:var(--wd-ink);--muted:var(--wd-mut);--line:var(--wd-line);--soft:rgba(127,127,127,.12);--accent:var(--wd-or);--accent-ink:#fff;--radius:var(--wd-r)}
+.app-keu{color:var(--wd-ink)}
+.app-keu header.top{background:color-mix(in srgb,var(--wd-bg) 72%,transparent);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);border-bottom:1px solid var(--wd-line)}
+html[data-theme=dark] .app-keu .brand img{filter:invert(1) brightness(1.6)}
+.app-keu .card,.app-keu .panel,.app-keu .stat{background:var(--wd-glass);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);border:1px solid var(--wd-stroke);box-shadow:var(--wd-shadow);border-radius:var(--wd-r)}
+.app-keu .kpi .ic{border-radius:14px;background:rgba(127,127,127,.1)} .app-keu .kpi .ic svg{stroke:var(--wd-ink)}
+.app-keu .kpi .v{font-weight:700;font-size:20px;letter-spacing:-.02em}
+.app-keu .ptitle h1{font-weight:600;letter-spacing:-.02em;font-size:clamp(26px,4vw,36px)} .app-keu .ptitle .rule{background:linear-gradient(90deg,var(--wd-or1),var(--wd-or2))}
+.app-keu button.btn,.app-keu .btn{border-radius:99px;background:var(--wd-glass);border-color:var(--wd-line);color:var(--wd-ink)}
+.app-keu .btn.primary{background:var(--wd-pill);color:var(--wd-pill-ink);border-color:var(--wd-pill)}
+.app-keu .btn.danger{color:#e5484d}
+.app-keu .fab{background:linear-gradient(135deg,var(--wd-or1),var(--wd-or2));color:#fff;box-shadow:0 14px 30px -10px rgba(240,70,27,.6);border-radius:50%}
+.app-keu input,.app-keu select,.app-keu textarea{border-radius:12px;background:var(--wd-glass2);border-color:var(--wd-line);color:var(--wd-ink)}
+.app-keu .seg{border-radius:99px;border-color:var(--wd-line);background:rgba(127,127,127,.08);padding:3px;gap:3px}
+.app-keu .seg button{background:transparent;border-radius:99px;color:var(--wd-mut)} .app-keu .seg button.on{background:var(--wd-pill)!important;color:var(--wd-pill-ink)!important}
+.app-keu table.act th{background:rgba(127,127,127,.1);color:var(--wd-ink)} .app-keu table.act td{border-color:var(--wd-line)}
+.app-keu .badge{border-color:var(--wd-line)}
+.app-keu dialog.sheet{background:var(--wd-bg);color:var(--wd-ink);border-radius:26px 26px 0 0;box-shadow:0 -20px 60px -20px rgba(0,0,0,.4)}
+.app-keu dialog.sheet[open]{animation:wdIn .35s cubic-bezier(.2,.7,.2,1)}
+.app-keu dialog.sheet::backdrop{background:rgba(0,0,0,.35);backdrop-filter:blur(4px)}
+.app-keu .toast{background:var(--wd-pill);color:var(--wd-pill-ink);box-shadow:var(--wd-shadow)}
+.app-keu .bar{background:rgba(127,127,127,.15)} .app-keu .bar>i{background:linear-gradient(90deg,var(--wd-or1),var(--wd-or2))}
+.app-keu .applink{background:var(--wd-glass);border-color:var(--wd-line);color:var(--wd-ink)}
+.app-keu .avatar{background:var(--wd-pill);color:var(--wd-pill-ink)} .app-keu .avatar i{border-color:var(--wd-bg)}
+/* menu: pil mengambang */
+.app-keu nav.tabs{background:var(--wd-glass);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);border:1px solid var(--wd-stroke);box-shadow:var(--wd-shadow)}
+@media (max-width:899px){
+  .app-keu nav.tabs{left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 10px);height:var(--nav-h);padding:6px;border-radius:24px;gap:2px}
+  .app-keu nav.tabs button{border-radius:18px;transition:background .25s,color .25s}
+  .app-keu nav.tabs button.on{background:var(--wd-pill);color:var(--wd-pill-ink)}
+  .app-keu .toast{bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 30px)}
+  .app-keu .fab{bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 26px)}
+}
+@media (min-width:900px){
+  .app-keu nav.tabs{border-radius:99px;padding:5px;gap:2px;margin:0 auto}
+  .app-keu nav.tabs button{padding:9px 18px;border-radius:99px;border:0;font-size:14px;font-weight:500;color:var(--wd-mut);transition:background .25s,color .25s}
+  .app-keu nav.tabs button:hover{color:var(--wd-ink)}
+  .app-keu nav.tabs button.on{background:var(--wd-pill);color:var(--wd-pill-ink);font-weight:600;border:0}
+  .app-keu header.top{padding:14px 28px}
+  .app-keu .top-in{padding-bottom:0}
+}
+
+/* ======================= Aplikasi PROYEK ======================= */
+.app-pry{--bg:transparent;--card:var(--wd-glass);--ink:var(--wd-ink);--mut:var(--wd-mut);--line:var(--wd-line);--acc:var(--wd-or);--acc2:rgba(242,84,27,.12);--r:var(--wd-r)}
+.app-pry{color:var(--wd-ink)}
+.app-pry .side{background:var(--wd-glass);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);color:var(--wd-ink);border-right:1px solid var(--wd-line);width:232px;padding:18px 12px}
+.app-pry .brand{color:var(--wd-ink);letter-spacing:.12em}.app-pry .brand small{color:var(--wd-mut)}
+.app-pry .nav a{color:var(--wd-mut);border-radius:99px;padding:9px 14px;transition:background .25s,color .25s,transform .2s}
+.app-pry .nav a:hover:not(.on){background:rgba(127,127,127,.1);color:var(--wd-ink);transform:translateX(2px)}
+.app-pry .nav a.on{background:var(--wd-pill);color:var(--wd-pill-ink)}
+.app-pry .top{background:color-mix(in srgb,var(--wd-bg) 70%,transparent);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);border-bottom:1px solid var(--wd-line)}
+.app-pry .card,.app-pry .kpi,.app-pry .md{background:var(--wd-glass);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);border:1px solid var(--wd-stroke);box-shadow:var(--wd-shadow);border-radius:var(--wd-r)}
+.app-pry .md{background:var(--wd-bg);border-radius:26px}
+.app-pry .ov{background:rgba(0,0,0,.35);backdrop-filter:blur(6px)}.app-pry .ov .md{animation:wdIn .35s cubic-bezier(.2,.7,.2,1)}
+.app-pry .kpi b{font-size:24px;letter-spacing:-.02em}
+.app-pry .btn{border-radius:99px;background:var(--wd-glass);border-color:var(--wd-line);color:var(--wd-ink)}
+.app-pry .btn.pri{background:var(--wd-pill);color:var(--wd-pill-ink);border-color:var(--wd-pill)}
+.app-pry .chip{background:var(--wd-glass);border-color:var(--wd-line);color:var(--wd-ink)} .app-pry .chip.on{background:var(--wd-pill);color:var(--wd-pill-ink);border-color:var(--wd-pill)}
+.app-pry input,.app-pry select,.app-pry textarea{border-radius:12px;background:var(--wd-glass2);border-color:var(--wd-line);color:var(--wd-ink)}
+.app-pry .bar{background:rgba(127,127,127,.15)}.app-pry .bar i{background:linear-gradient(90deg,var(--wd-or1),var(--wd-or2))}
+.app-pry .bar.ok i{background:#22a06b}.app-pry .bar.bad i{background:#e5484d}
+.app-pry th{color:var(--wd-mut)} .app-pry th,.app-pry td{border-color:var(--wd-line)}
+.app-pry .toast{background:var(--wd-pill);color:var(--wd-pill-ink);border-radius:99px}
+.app-pry .col{background:rgba(127,127,127,.08);border-radius:var(--wd-r)} .app-pry .tk{background:var(--wd-glass);border-color:var(--wd-line);border-radius:16px}
+.app-pry .gantt,.app-pry .glab,.app-pry .ghead,.app-pry .ghead .glab{background:var(--wd-glass)!important;border-color:var(--wd-line)}
+.app-pry .grow,.app-pry .gtrack{border-color:var(--wd-line)}
+.app-pry .msg{background:var(--wd-glass);border-color:var(--wd-line);border-radius:18px}.app-pry .msg.me{background:var(--acc2)}
+.app-pry .thumb{background:rgba(127,127,127,.12);border-color:var(--wd-line)}
+.app-pry .tabs{background:color-mix(in srgb,var(--wd-bg) 70%,transparent);backdrop-filter:var(--wd-blur);-webkit-backdrop-filter:var(--wd-blur);border-color:var(--wd-line)}
+.app-pry .tabs a{background:var(--wd-glass);border-color:var(--wd-line);color:var(--wd-ink);border-radius:99px}.app-pry .tabs a.on{background:var(--wd-pill);color:var(--wd-pill-ink);border-color:var(--wd-pill)}
+.app-pry #finb{border-radius:99px}
+.app-pry .rt th{background:var(--wd-pill);color:var(--wd-pill-ink)}
+html[data-theme=dark] .app-pry .gc{background-color:transparent;color:var(--wd-ink)}
+html[data-theme=dark] .app-pry [style*="background:#fff"],html[data-theme=dark] .app-pry [style*="background:#faf8f5"],html[data-theme=dark] .app-pry [style*="background:#fcfbf9"],html[data-theme=dark] .app-pry [style*="background:#fbf4ee"]{background:var(--wd-glass2)!important;color:var(--wd-ink)}
+html[data-theme=dark] .app-keu [style*="background:#fff"],html[data-theme=dark] .app-keu [style*="background: #fff"]{background:var(--wd-glass2)!important}
+html[data-theme=dark] .warnbox{background:rgba(214,160,40,.14);color:#f0c96a}
+html[data-theme=dark] .okbox{background:rgba(34,160,107,.14);color:#7fd6ad}
+html[data-theme=dark] .tag{background:rgba(255,255,255,.08);color:#ccc}
+@media print{html,body{background:#fff!important}.wd-theme{display:none}.wd-in{animation:none!important}}
+/* HP: header tanpa backdrop-filter (supaya menu fixed tetap di bawah), menu bisa digeser */
+@media (max-width:899px){
+  .app-keu header.top{backdrop-filter:none;-webkit-backdrop-filter:none;background:color-mix(in srgb,var(--wd-bg) 94%,transparent)}
+  .app-keu nav.tabs{overflow-x:auto;scrollbar-width:none;justify-content:flex-start}
+  .app-keu nav.tabs::-webkit-scrollbar{display:none}
+  .app-keu nav.tabs button{flex:1 0 54px;min-width:54px;font-size:10px}
+}
+/* mode sematan (Gaji di aplikasi Keuangan) */
+html.embed .app-pry .top{position:static;background:transparent;border:0;padding:0 12px;backdrop-filter:none;-webkit-backdrop-filter:none}
+html.embed .app-pry .top>*:not(#psel){display:none!important}
