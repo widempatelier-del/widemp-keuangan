@@ -195,9 +195,110 @@
       <label>NTPN / kode billing (opsional)</label><input name="ntpn">${foot()}</form>`);
   }
   /* ---------------- Gaji tukang (data bersama aplikasi Proyek) ---------------- */
+
+  /* ---------------- Gaji karyawan (bulanan) ---------------- */
+  const salNet = (s) => (Number(s.base) || 0) + (Number(s.allow) || 0) + (Number(s.bonus) || 0) - (Number(s.deduct) || 0);
   function vGaji() {
-    return `<div class="ptitle"><div class="tx"><h1>Gaji Tukang</h1><p>Absensi, lembur, kasbon, penggajian & slip upah. Data sama persis dengan menu Gaji di aplikasi Proyek, dan setiap pembayaran otomatis tercatat sebagai pengeluaran proyek di Kas.</p><div class="rule"></div></div></div>
-      <div class="panel" style="padding:0;overflow:hidden"><iframe id="gajiFrame" src="proyek/?embed=gaji#gaji" title="Gaji tukang" style="width:100%;height:calc(100dvh - 210px);min-height:560px;border:0;display:block;background:transparent"></iframe></div>`;
+    const seg = ui.gajiSeg || 'karyawan';
+    const tabs = `<div class="seg sm" style="margin-bottom:14px">${[['karyawan', 'Karyawan (bulanan)'], ['tukang', 'Tukang harian']].map(([k, l]) => `<button data-act="gaji-seg" data-k="${k}" class="${seg === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    if (seg === 'tukang') return `<div class="ptitle"><div class="tx"><h1>Gaji</h1><p>Absensi, lembur, kasbon & slip upah tukang. Data sama dengan menu Gaji di aplikasi Proyek; pembayaran otomatis tercatat di Kas.</p><div class="rule"></div></div></div>${tabs}
+      <div class="panel" style="padding:0;overflow:hidden"><iframe id="gajiFrame" src="proyek/?embed=gaji#gaji" title="Gaji tukang" style="width:100%;height:calc(100dvh - 250px);min-height:560px;border:0;display:block;background:transparent"></iframe></div>`;
+    const emps = of('employee').sort((a, b) => (b.active !== false) - (a.active !== false) || a.name.localeCompare(b.name));
+    const sals = of('salary').sort((a, b) => b.period.localeCompare(a.period) || b.date.localeCompare(a.date));
+    const mk = C.isoDate().slice(0, 7), yr = mk.slice(0, 4);
+    const paidThis = (e) => sals.some((s) => s.employeeId === e.id && s.period === mk);
+    const act = emps.filter((e) => e.active !== false), unpaid = act.filter((e) => !paidThis(e));
+    const yearTot = sals.filter((s) => s.period.slice(0, 4) === yr).reduce((s, x) => s + x.net, 0);
+    const monthTot = act.reduce((s, e) => s + (Number(e.base) || 0) + (Number(e.allow) || 0), 0);
+    return `<div class="ptitle"><div class="tx"><h1>Gaji</h1><p>Gaji bulanan karyawan & pemilik, lengkap dengan slip gaji PDF. Setiap pembayaran otomatis tercatat sebagai pengeluaran "Gaji & honor".</p><div class="rule"></div></div>
+      <button class="btn primary" data-act="emp-new">+ Karyawan</button></div>${tabs}
+      <div class="wd-hero"><div class="h-top"><span class="h-tag">Gaji ${monthName(mk)}</span><span>${act.length} karyawan aktif</span></div>
+        <div class="h-big wd-count">${rp(monthTot)}</div><div class="h-bar"><i data-w="${act.length ? Math.round((act.length - unpaid.length) / act.length * 100) : 0}%"></i></div>
+        <div class="h-sub"><span>${unpaid.length ? unpaid.length + ' belum dibayar bulan ini' : act.length ? 'Semua sudah dibayar' : 'Belum ada karyawan'}</span><span>Total gaji ${yr}: ${rp(yearTot)}</span></div>
+        <div class="h-act"><button class="h-btn" data-act="sal-new">+ Bayar gaji</button></div></div>
+      <div class="panel"><div class="panel-h"><h3>Karyawan</h3></div>
+        ${emps.map((e) => `<div class="row"><div class="grow click" data-act="emp-edit" data-id="${e.id}"><div class="t">${esc(e.name)} ${e.active === false ? '<span class="badge">nonaktif</span>' : ''}</div>
+          <div class="s">${esc(e.role || '-')} · gaji pokok ${rp(e.base)}${Number(e.allow) ? ' + tunjangan ' + rp(e.allow) : ''}</div></div>
+          ${e.active !== false ? (paidThis(e) ? '<span class="badge ok">Sudah dibayar</span>' : `<button class="btn sm primary" data-act="sal-new" data-id="${e.id}">Bayar ${monthName(mk).split(' ')[0]}</button>`) : ''}</div>`).join('') || '<div class="empty">Belum ada karyawan. Ketuk "+ Karyawan".</div>'}</div>
+      <div class="panel"><div class="panel-h"><h3>Riwayat penggajian</h3></div>
+        ${sals.map((s) => `<div class="row"><div class="grow click" data-act="sal-edit" data-id="${s.id}"><div class="t">${esc(s.name)} · ${monthName(s.period)}</div>
+          <div class="s">${esc(s.number || '')} · dibayar ${fmtDate(s.date)}${Number(s.deduct) ? ' · potongan ' + rp(s.deduct) : ''}</div></div>
+          <b style="white-space:nowrap">${rp(s.net)}</b><button class="btn sm" data-act="sal-pdf" data-id="${s.id}">Slip PDF</button></div>`).join('') || '<div class="empty">Belum ada penggajian.</div>'}</div>`;
+  }
+  function empForm(e) {
+    e = e || { active: true };
+    openSheet(`<form data-form="emp" data-id="${e.id || ''}">${head(e.id ? 'Ubah karyawan' : 'Karyawan baru')}
+      <label>Nama</label><input name="name" value="${esc(e.name || '')}" required>
+      <div class="cols"><div><label>Jabatan</label><input name="role" value="${esc(e.role || '')}" placeholder="mis. Drafter"></div><div><label>Mulai bekerja</label><input type="date" name="start" value="${e.start || ''}"></div></div>
+      <div class="cols"><div><label>Gaji pokok / bulan</label><input name="base" class="money" inputmode="numeric" value="${fmtMoneyInput(e.base || 0)}" required></div><div><label>Tunjangan tetap / bulan</label><input name="allow" class="money" inputmode="numeric" value="${fmtMoneyInput(e.allow || 0)}"></div></div>
+      <div class="cols"><div><label>No. HP</label><input name="phone" value="${esc(e.phone || '')}"></div><div><label>Rekening (untuk slip)</label><input name="bank" value="${esc(e.bank || '')}" placeholder="BCA 123…"></div></div>
+      <label class="chk"><input type="checkbox" name="active" ${e.active !== false ? 'checked' : ''}> Masih aktif</label>
+      ${foot(e.id ? `<button class="btn danger" type="button" data-act="emp-del" data-id="${e.id}">Hapus</button>` : '')}</form>`);
+  }
+  function salForm(s, empId) {
+    const emps = of('employee').filter((e) => e.active !== false || (s && s.employeeId === e.id));
+    if (!emps.length) { toast('Tambahkan karyawan dulu'); return empForm(); }
+    const e = byId((s && s.employeeId) || empId) || emps[0], mk = C.isoDate().slice(0, 7);
+    s = s || { employeeId: e.id, period: mk, date: C.isoDate(), base: e.base, allow: e.allow || 0, bonus: 0, deduct: 0 };
+    const acc = of('account').filter((a) => (a.scope || 'usaha') === 'usaha');
+    openSheet(`<form data-form="sal" data-id="${s.id || ''}">${head(s.id ? 'Ubah penggajian' : 'Bayar gaji')}
+      <label>Karyawan</label><select name="employeeId" id="salEmp">${emps.map((x) => opt(x.id, x.name + (x.role ? ' – ' + x.role : ''), x.id === s.employeeId)).join('')}</select>
+      <div class="cols"><div><label>Periode gaji</label><input type="month" name="period" value="${s.period}" required></div><div><label>Tanggal dibayar</label><input type="date" name="date" value="${s.date}" required></div></div>
+      <div class="cols"><div><label>Gaji pokok</label><input name="base" class="money sal-n" inputmode="numeric" value="${fmtMoneyInput(s.base)}"></div><div><label>Tunjangan</label><input name="allow" class="money sal-n" inputmode="numeric" value="${fmtMoneyInput(s.allow)}"></div></div>
+      <div class="cols"><div><label>Lembur / bonus</label><input name="bonus" class="money sal-n" inputmode="numeric" value="${fmtMoneyInput(s.bonus)}"></div><div><label>Potongan</label><input name="deduct" class="money sal-n" inputmode="numeric" value="${fmtMoneyInput(s.deduct)}"></div></div>
+      <label>Keterangan potongan (opsional)</label><input name="deductNote" value="${esc(s.deductNote || '')}" placeholder="mis. kasbon, BPJS">
+      <label>Dibayar dari akun</label><select name="accountId">${acc.map((a) => opt(a.id, a.name, a.id === s.accountId)).join('')}</select>
+      <div class="note">Gaji bersih: <b id="salNet">${rp(salNet(s))}</b></div>
+      ${foot(s.id ? `<button class="btn danger" type="button" data-act="sal-del" data-id="${s.id}">Hapus</button>` : '')}</form>`);
+  }
+  function salRefresh(f) {
+    const v = (n) => C.parseNum(f[n].value);
+    const net = v('base') + v('allow') + v('bonus') - v('deduct'), el = $('#salNet', f); if (el) el.textContent = rp(net);
+  }
+  async function salPdf(s, btn) {
+    const lbl = btn.textContent; btn.disabled = true; btn.textContent = 'Menyiapkan…';
+    try {
+      const blob = await salSlip(s), name = `Slip_Gaji_${s.name.replace(/[^\w]+/g, '-')}_${s.period}.pdf`, file = new File([blob], name, { type: 'application/pdf' });
+      if (navigator.canShare && navigator.canShare({ files: [file] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)) await navigator.share({ files: [file], title: name });
+      else { const url = URL.createObjectURL(blob), l = document.createElement('a'); l.href = url; l.download = name; document.body.appendChild(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
+    } catch (err) { if (!(err && err.name === 'AbortError')) toast('Gagal: ' + err.message); }
+    finally { btn.disabled = false; btn.textContent = lbl; }
+  }
+  function salSlip(s) {
+    const P = window.WidempPDF, d = new P.Doc(), COL = P.COL, PW = P.PW, X0 = 62, X1 = PW - 62, biz = bizInfo(), e = byId(s.employeeId) || {};
+    const L = (t, x, y, o) => P.label(d, t, x, y, o);
+    d.logo(X0 + 2, 30, 155); d.line(X0, 138, X1, 138, COL.tan, 0.8);
+    d.text('SLIP GAJI', PW / 2, 172, { font: 'B', size: 22, color: COL.dark, align: 'center' });
+    d.text('PAYSLIP · ' + monthName(s.period).toUpperCase(), PW / 2, 189, { font: 'B', size: 7, color: COL.tan, align: 'center', spacing: 0.4 });
+    L('No. Slip', X0 + 7, 216); L('Tanggal dibayar', X1 - 7, 216, { align: 'right' });
+    d.text(s.number || '-', X0 + 7, 234, { font: 'B', size: 10, color: COL.dark });
+    d.text(C.tanggalPanjang(s.date), X1 - 7, 234, { size: 10, align: 'right' });
+    d.line(X0, 245, X1, 245, COL.line, 0.8);
+    let y = 266;
+    [['Nama', s.name], ['Jabatan', s.role || e.role || '-'], ['Periode', monthName(s.period)], ['Rekening', e.bank || '-']].forEach(([k, v], i) => {
+      const x = i % 2 ? (X0 + X1) / 2 + 6 : X0, yy = y + Math.floor(i / 2) * 34;
+      L(k, x, yy); d.text(v, x, yy + 15, { font: i ? 'R' : 'B', size: 10.5, color: COL.dark });
+    });
+    y += 78;
+    const row = (k, v, o = {}) => { d.line(X0, y + 22, X1, y + 22, COL.line, 0.6); d.text(k, X0 + 8, y + 15, { size: 9.5, font: o.b ? 'B' : 'R', color: o.c || COL.text }); d.text(v, X1 - 8, y + 15, { size: 9.5, font: o.b ? 'B' : 'R', align: 'right', color: o.c || COL.text }); y += 22; };
+    d.rect(X0, y, X1 - X0, 20, COL.cream); L('Pendapatan', X0 + 8, y + 13); y += 20;
+    row('Gaji pokok', C.fmtRp(s.base)); if (Number(s.allow)) row('Tunjangan', C.fmtRp(s.allow)); if (Number(s.bonus)) row('Lembur / bonus', C.fmtRp(s.bonus));
+    row('Total pendapatan', C.fmtRp((+s.base || 0) + (+s.allow || 0) + (+s.bonus || 0)), { b: true });
+    y += 10; d.rect(X0, y, X1 - X0, 20, COL.cream); L('Potongan', X0 + 8, y + 13); y += 20;
+    row(s.deductNote || 'Potongan', Number(s.deduct) ? '− ' + C.fmtRp(s.deduct) : C.fmtRp(0));
+    y += 14; d.rect(X0, y, X1 - X0, 56, COL.cream, COL.tan, 0.8);
+    L('Gaji bersih diterima', X0 + 9, y + 17); d.text(C.fmtRp(s.net), X0 + 9, y + 43, { font: 'B', size: 20, color: COL.dark });
+    y += 74; L('Terbilang', X0, y); y += 16 + d.lines(C.terbilang(s.net), X0, y + 16, X1 - X0, { font: 'I', size: 10, color: COL.dark }) + 22;
+    d.text(`${biz.city || 'Cianjur'}, ${C.tanggalPanjang(s.date)}`, X1, y, { size: 9.5, align: 'right' });
+    L('Diterima oleh', X0, y + 18); L('Disetujui oleh', X1, y + 18, { align: 'right' });
+    d.line(X0, y + 86, X0 + 150, y + 86, COL.line, 0.8); d.line(X1 - 150, y + 86, X1, y + 86, COL.line, 0.8);
+    d.text(s.name, X0, y + 100, { font: 'B', size: 9.5, color: COL.dark });
+    d.text(cfg().signerName || biz.name || '', X1, y + 100, { font: 'B', size: 9.5, color: COL.dark, align: 'right' });
+    d.text(cfg().signerTitle || '', X1, y + 112, { size: 8, color: COL.gray, align: 'right' });
+    d.line(X0, P.PH - 46, X1, P.PH - 46, COL.line, 0.8);
+    d.text([biz.email, biz.name].filter(Boolean).join(' · '), PW / 2, P.PH - 36, { size: 7, color: COL.gray, align: 'center' });
+    d.text('Dokumen ini rahasia – hanya untuk karyawan yang bersangkutan', PW / 2, P.PH - 27, { font: 'B', size: 6.5, color: COL.tan, align: 'center', spacing: 0.3 });
+    return d.build(s.number || 'Slip gaji');
   }
 
   /* ----- Ringkasan ----- */
@@ -707,6 +808,18 @@
       } else if (kind === 'liab') {
         const old = id ? byId(id) : null;
         await save('liability', Object.assign({}, old, { id, name: d.name.trim(), total: C.parseNum(d.total), paidBefore: C.parseNum(d.paidBefore), monthly: C.parseNum(d.monthly), category: d.category, note: d.note.trim() }));
+      } else if (kind === 'emp') {
+        const old = id ? byId(id) : null;
+        await save('employee', Object.assign({}, old, { id, name: d.name.trim(), role: (d.role || '').trim(), start: d.start || '', base: C.parseNum(d.base), allow: C.parseNum(d.allow), phone: (d.phone || '').trim(), bank: (d.bank || '').trim(), active: !!d.active }));
+      } else if (kind === 'sal') {
+        const old = id ? byId(id) : null, e = byId(d.employeeId);
+        const rec = Object.assign({}, old, { id: id || C.uid(), employeeId: e.id, name: e.name, role: e.role || '', period: d.period, date: d.date, accountId: d.accountId,
+          base: C.parseNum(d.base), allow: C.parseNum(d.allow), bonus: C.parseNum(d.bonus), deduct: C.parseNum(d.deduct), deductNote: (d.deductNote || '').trim() });
+        rec.net = salNet(rec); if (rec.net <= 0) return toast('Gaji bersih harus lebih dari 0');
+        if (!old && of('salary').some((x) => x.employeeId === e.id && x.period === rec.period) && !confirm('Gaji ' + e.name + ' untuk ' + monthName(rec.period) + ' sudah pernah dibayar. Tetap catat lagi?')) return;
+        if (!rec.seq) { rec.seq = C.nextSeq(of('salary'), rec.date); rec.number = C.docNumber('SLP/WA', rec.seq, rec.date); }
+        const txId = rec.txId || C.uid(); rec.txId = txId;
+        await saveMany([['tx', Object.assign({}, byId(txId) || {}, { id: txId, kind: 'out', date: rec.date, amount: rec.net, category: 'Gaji & honor', accountId: rec.accountId, projectId: '', termId: '', liabilityId: '', salaryId: rec.id, note: 'Gaji ' + rec.name + ' – ' + monthName(rec.period) })], ['salary', rec]]);
       } else if (kind === 'taxset') {
         await save('config', Object.assign({}, R.get('config') || {}, { id: 'config', tax: { umkm: !!d.umkm, sbu: !!d.sbu } }));
       } else if (kind === 'taxproj') {
@@ -757,7 +870,7 @@
       case 'bill-term': { const t = byId(id); await save('term', Object.assign({}, t, { billed: !t.billed, billedDate: t.billed ? '' : C.isoDate() })); render(); break; }
       case 'new-tx': txForm(null, { kind: el.dataset.kind, projectId: el.dataset.project }); break;
       case 'edit-tx': txForm(byId(id)); break;
-      case 'del-tx': if (confirm('Hapus transaksi ini?')) { await del(id); closeSheet(); render(); toast('Dihapus'); } break;
+      case 'del-tx': if (confirm('Hapus transaksi ini?')) { const sx = byId(id); if (sx && sx.salaryId && byId(sx.salaryId)) await del(sx.salaryId); await del(id); closeSheet(); render(); toast('Dihapus'); } break;
       case 'kind': { const f = el.closest('form'); f.kind.value = el.dataset.k; f.category.innerHTML = ''; f.querySelectorAll('.seg button').forEach((b) => { b.className = b.dataset.k === el.dataset.k ? 'on ' + b.dataset.k : ''; }); refreshTx(f); break; }
       case 'new-account': accountForm(null); break;
       case 'edit-account': accountForm(byId(id)); break;
@@ -795,6 +908,14 @@
       case 'edit-liab': liabForm(byId(id)); break;
       case 'del-liab': if (of('tx').some((t) => t.liabilityId === id) && !confirm('Kewajiban ini punya pembayaran tercatat. Pembayarannya tetap ada sebagai pengeluaran. Hapus?')) return; if (confirm('Hapus kewajiban ini?')) { await del(id); closeSheet(); render(); } break;
       case 'pay-liab': { const l = byId(id), sm = C.liabilitySummary(l, of('tx'), C.monthKey(C.isoDate())); txForm(null, { kind: 'out', liabilityId: l.id, category: l.category, amount: Math.min(l.monthly || sm.remaining, sm.remaining) }); break; }
+      case 'gaji-seg': ui.gajiSeg = el.dataset.k; render(); break;
+      case 'emp-new': empForm(); break;
+      case 'emp-edit': empForm(byId(id)); break;
+      case 'emp-del': if (confirm('Hapus karyawan ini? Riwayat gajinya tetap ada.')) { await del(id); closeSheet(); render(); } break;
+      case 'sal-new': salForm(null, id); break;
+      case 'sal-edit': salForm(byId(id)); break;
+      case 'sal-del': { const x = byId(id); if (confirm('Hapus penggajian ini? Pengeluaran di Kas ikut terhapus.')) { if (x.txId && byId(x.txId)) await del(x.txId); await del(id); closeSheet(); render(); toast('Dihapus'); } break; }
+      case 'sal-pdf': salPdf(byId(id), el); break;
       case 'go-pajak': ui.tab = 'pajak'; ui.pid = null; render(); window.scrollTo(0, 0); break;
       case 'tax-set': taxSetForm(); break;
       case 'tax-proj': taxProjForm(byId(id)); break;
@@ -811,6 +932,7 @@
     if (t.matches('.termrow [name=percent]')) updTermSum();
     if (t.closest('form[data-form=invoice]')) updInvTotal();
     if (t.closest('form[data-form=daily]')) updDayTotal();
+    if (t.classList.contains('sal-n') && t.form) salRefresh(t.form);
     if (window.Studio) window.Studio.input(e);
     if (t.id === 'fQ') { ui.q = t.value; clearTimeout(render._t); render._t = setTimeout(() => { render(); const q = $('#fQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 250); }
   });
@@ -818,6 +940,8 @@
     const t = e.target;
     if (window.Studio && window.Studio.change(e)) return;
     if (t.id === 'fPeriod') { ui.period = t.value; try { localStorage.setItem('wk_period', t.value); } catch (err) { /* abaikan */ } render(); }
+    else if (t.classList && t.classList.contains('sal-n') && t.form) salRefresh(t.form);
+    else if (t.id === 'salEmp' && t.form && !t.form.dataset.id) { const e = byId(t.value); if (e) { t.form.base.value = fmtMoneyInput(e.base || 0); t.form.allow.value = fmtMoneyInput(e.allow || 0); salRefresh(t.form); } }
     else if (t.id === 'fTaxYear') { ui.taxYear = t.value; render(); }
     else if (t.id === 'fMonth') { ui.month = t.value; render(); }
     else if (t.id === 'fKind') { ui.kind = t.value; render(); }
