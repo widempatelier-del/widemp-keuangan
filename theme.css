@@ -138,3 +138,8 @@ html[data-theme=dark] .tag{background:rgba(255,255,255,.08);color:#ccc}
 /* mode sematan (Gaji di aplikasi Keuangan) */
 html.embed .app-pry .top{position:static;background:transparent;border:0;padding:0 12px;backdrop-filter:none;-webkit-backdrop-filter:none}
 html.embed .app-pry .top>*:not(#psel){display:none!important}
+/* kartu yang bisa diketuk untuk melihat rincian */
+.drill{cursor:pointer;transition:transform .15s,box-shadow .15s}
+.stat.drill:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(0,0,0,.08)}.stat.drill:active{transform:scale(.98)}
+.stat.drill .l::after{content:' ›';opacity:.45}
+.dsec{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#888);padding:14px 2px 4px}

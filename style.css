@@ -180,3 +180,4 @@ label.chk input { width: auto; }
 
 .applink { font-size: 12px; font-weight: 600; padding: 5px 11px; border: 1px solid var(--line); border-radius: 99px; text-decoration: none; color: inherit; white-space: nowrap; margin-right: 8px; background: #fff; }
 .applink:hover { border-color: var(--ink, #333); }
+.sheet .sbody{padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto}

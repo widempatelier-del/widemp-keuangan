@@ -209,6 +209,12 @@ html[data-theme=dark] .app-pry .wbrand img,html[data-theme=dark] .app-pry .mlogo
 }
 html.embed .app-pry .bnav,html.embed .app-pry .mlogo{display:none!important}
 @media print{.app-pry .bnav,#moreSheet{display:none!important}}
+.drill{cursor:pointer;transition:transform .15s,box-shadow .15s}.kpi.drill:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.08)}.kpi.drill:active{transform:scale(.98)}
+.kpi.drill>span:first-child::after{content:' ›';opacity:.5}
+.dlist{display:flex;flex-direction:column;max-height:62vh;overflow:auto}
+.drow{display:flex;gap:12px;align-items:center;padding:11px 4px;border-bottom:1px solid var(--wd-line,var(--line))}.drow[data-gop]{cursor:pointer}.drow[data-gop]:hover{background:rgba(0,0,0,.03)}
+.drow .dg{flex:1;min-width:0}.drow .dt{font-weight:600;font-size:13.5px}.drow .ds{font-size:12px;color:var(--mut);margin-top:2px}.drow .dr{font-weight:700;white-space:nowrap;font-size:13px}
+.dsec{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);padding:14px 4px 4px}
 </style>
 <script>if(/[?&]embed=gaji/.test(location.search))document.documentElement.classList.add("embed")</script>
 <style>html.embed .side,html.embed .tabs{display:none!important}html.embed .app{display:block}html.embed .main{margin:0!important;padding:0!important}html.embed body,html.embed .app{background:transparent!important}html.embed #view{padding:12px!important;max-width:none}</style>
@@ -570,7 +576,7 @@ function finCard(){
   if(finState==='err')h+='<div class="warnbox">'+esc(finErr)+' <button class="btn sm" id="finR2">Coba lagi</button>'+'</div>';
   if(!FIN){h+=finState==='loading'?'<div class="mut small">Membaca data dari Google Drive…</div>':(clientId()?'<div class="mut small">Masuk Google (ketuk status sinkron di kanan atas) untuk membaca data keuangan.</div>':'<div class="mut small">Atur sambungan Google Drive di aplikasi keuangan (menu Data) dulu, lalu buka halaman ini lagi.</div>');return h+'</div>'}
   const k=finTotals();
-  h+='<div class="grid g4">'+kpi('Saldo rekening usaha',rpS(k.bal),k.bal<0?'bad':'')+kpi('Masuk bulan ini',rpS(k.mIn),'ok')+kpi('Keluar bulan ini',rpS(k.mOut),'')+kpi('Piutang ditagih',rpS(k.billed),k.billed?'warn':'','belum ditagih '+rpS(k.unbilled))+'</div>';
+  h+='<div class="grid g4">'+kpi('Saldo rekening usaha',rpS(k.bal),k.bal<0?'bad':'','','fbal')+kpi('Masuk bulan ini',rpS(k.mIn),'ok','','fin')+kpi('Keluar bulan ini',rpS(k.mOut),'','','fout')+kpi('Piutang ditagih',rpS(k.billed),k.billed?'warn':'','belum ditagih '+rpS(k.unbilled),'bill')+'</div>';
   if(un.length)h+='<div class="okbox" style="margin-bottom:0">'+un.length+' proyek di aplikasi keuangan belum ada di sini: '+un.map(p=>esc(p.name)).join(', ')+' <button class="btn sm" id="finImp">Tambahkan semua</button></div>';
   return h+'</div>';
 }
@@ -578,6 +584,36 @@ function finCardBind(){
   const r=$('#finR');if(r)r.onclick=()=>syncNow(true);const r2=$('#finR2');if(r2)r2.onclick=()=>syncNow(true);
   const im=$('#finImp');if(im)im.onclick=()=>{const l=finUnlinked();l.forEach(finImport);applyFin();toast(l.length+' proyek ditambahkan — sesuaikan tahapnya di menu Jadwal');if(mode==='pending')render()};
 }
+
+/* ========== Rincian dari kartu Ringkasan ========== */
+function drillRow(t,s,r,attrs){return '<div class="drow"'+(attrs||'')+'><div class="dg"><div class="dt">'+t+'</div>'+(s?'<div class="ds">'+s+'</div>':'')+'</div>'+(r!=null?'<div class="dr">'+r+'</div>':'')+'</div>'}
+function drill(k){
+  const t=today(),fp=id=>(finRecs('project').find(x=>x.id===id)||{}).name||'Kantor / umum',pn=id=>(proj(id)||{}).name||'-';
+  let title='',sub='',rows=[],total=null;
+  if(k==='act'){const l=S.projects.filter(p=>p.status==='Berjalan');title='Proyek berjalan';sub=l.length+' proyek · ketuk untuk membuka jadwalnya';
+    rows=l.map(p=>{const pr=projProgress(p)||0,cf=curPhase(p);return drillRow(esc(p.name),esc([p.client,cf&&'Tahap: '+cf.name].filter(Boolean).join(' · '))+'<div class="bar" style="margin-top:6px"><i style="width:'+pr+'%"></i></div>',pr+'%',' data-gop="'+p.id+'"')})}
+  else if(k==='late'){const l=S.tasks.filter(x=>x.status!=='done'&&x.due&&x.due<t).sort((a,b)=>a.due<b.due?-1:1);title='Tugas terlambat';sub=l.length+' tugas';
+    rows=l.map(x=>{const m=S.team.find(y=>y.id===x.assignee);return drillRow(esc(x.title),esc(pn(x.pid)+(m?' · '+m.name:'')),'<span style="color:var(--bad)">'+fD(x.due)+'</span>',' data-gop="'+x.pid+'" data-v="tugas"')})}
+  else if(k==='ready'){const l=S.terms.filter(termReady);title='Siap ditagih';total=l.reduce((s,x)=>s+termAmt(x),0);sub=l.length+' termin';
+    rows=l.map(x=>drillRow(esc(x.name||x.label||'Termin'),esc(pn(x.pid)),rpS(termAmt(x)),' data-gop="'+x.pid+'" data-v="po"'))}
+  else if(k==='def'){const l=S.defects.filter(x=>x.status!=='Ditutup');title='Temuan pengawasan terbuka';sub=l.length+' temuan';
+    rows=l.map(x=>drillRow(esc(x.title),esc(pn(x.pid)+(x.loc?' · '+x.loc:'')+' · '+x.status),x.due?'<span style="color:'+(x.due<t?'var(--bad)':'inherit')+'">'+fD(x.due)+'</span>':'',' data-gop="'+x.pid+'" data-v="pengawasan"'))}
+  else if(['fin','fout','fbal'].includes(k)){const accs=finRecs('account').filter(a=>(a.scope||'usaha')==='usaha'),ok=new Set(accs.map(a=>a.id)),mk=t.slice(0,7);
+    let l=finRecs('tx').filter(x=>ok.has(x.accountId)).sort((a,b)=>a.date<b.date?1:-1);
+    if(k==='fin')l=l.filter(x=>x.kind==='in'&&(x.date||'').slice(0,7)===mk);if(k==='fout')l=l.filter(x=>x.kind==='out'&&(x.date||'').slice(0,7)===mk);
+    title=k==='fin'?'Masuk bulan ini':k==='fout'?'Keluar bulan ini':'Saldo rekening usaha';
+    if(k==='fbal'){const ti=l.filter(x=>x.kind==='in').reduce((s,x)=>s+(+x.amount||0),0),to=l.filter(x=>x.kind==='out').reduce((s,x)=>s+(+x.amount||0),0),op=accs.reduce((s,a)=>s+(+a.opening||0),0);
+      rows=[drillRow('Saldo awal akun','',rpS(op)),drillRow('Total pemasukan','',rpS(ti)),drillRow('Total pengeluaran','','− '+rpS(to)),drillRow('<b>Saldo sekarang</b>','','<b>'+rpS(op+ti-to)+'</b>')].concat(['<div class="dsec">Transaksi terakhir</div>']);l=l.slice(0,25)}
+    else total=l.reduce((s,x)=>s+(+x.amount||0),0);
+    sub=sub||l.length+' transaksi';
+    rows=rows.concat(l.map(x=>drillRow(esc(x.note||x.category||'-'),esc(fD(x.date)+' · '+fp(x.projectId)+(x.category?' · '+x.category:'')),'<span style="color:'+(x.kind==='in'?'var(--ok)':'inherit')+'">'+(x.kind==='in'?'+ ':'− ')+rpS(+x.amount||0)+'</span>')))}
+  else if(k==='bill'){title='Piutang';const ps=finRecs('project').filter(p=>p.status!=='batal');let b=0,u=0;
+    ps.forEach(p=>finSummary(p).sched.forEach(x=>{if(x.remaining>0&&(x.billed||p.status!=='selesai')){x.billed?b+=x.remaining:u+=x.remaining;rows.push(drillRow(esc(p.name+' – '+(x.label||'Termin')),(x.billed?'<span class="tag" style="background:#fdf0d8">Sudah ditagih</span>':'Belum ditagih')+(x.dueDate?' · jatuh tempo '+fD(x.dueDate):''),rpS(x.remaining)))}}));
+    sub='Sudah ditagih '+rpS(b)+' · belum ditagih '+rpS(u);total=b+u}
+  openModal('<div class="hd"><h3>'+title+'</h3><span class="sp"></span><button class="btn sm" data-close>Tutup</button></div><div class="small mut" style="margin:-4px 0 10px">'+sub+(total!=null?' · total <b>'+rpS(total)+'</b>':'')+'</div><div class="dlist">'+(rows.join('')||'<div class="empty">Tidak ada data.</div>')+'</div>',true);
+  $$('#modals [data-gop]').forEach(r=>r.onclick=()=>{PID=r.dataset.gop;lsSet('widemp_pid',PID);closeModal();go(r.dataset.v||'jadwal')});
+}
+document.addEventListener('click',e=>{const d=e.target.closest('[data-drill]');if(d&&!e.target.closest('button,a'))drill(d.dataset.drill)});
 
 /* ========== UI infra ========== */
 let tT;function toast(m){let t=$('.toast');if(!t){t=document.createElement('div');t.className='toast';document.body.appendChild(t)}t.textContent=m;t.style.display='block';clearTimeout(tT);tT=setTimeout(()=>t.style.display='none',2600)}
@@ -635,7 +671,7 @@ const UI={taskFilter:'',chatFilter:'',showTasks:true,docFilter:''};
 
 function render(){
   $('#nav').innerHTML=VIEWS.map(v=>'<a href="#'+v[0]+'" class="'+(v[0]===V?'on':'')+'"><span class="ic">'+svgI(v[0])+'</span>'+v[1]+'</a>').join('');
-  {const short={ringkasan:'Ringkasan',jadwal:'Jadwal',tugas:'Tugas',lapangan:'Lapangan',gaji:'Gaji'};const inMore=!BNAV.includes(V);
+  {const short={ringkasan:'Beranda',jadwal:'Jadwal',tugas:'Tugas',lapangan:'Lapangan',gaji:'Gaji'};const inMore=!BNAV.includes(V);
   $('#bnav').innerHTML=BNAV.map(k=>'<a href="#'+k+'" class="'+(k===V?'on':'')+'">'+svgI(k)+'<span>'+short[k]+'</span></a>').join('')+'<button type="button" class="'+(inMore?'on':'')+'" onclick="openMore()">'+svgI('more')+'<span>'+(inMore?((VIEWS.find(v=>v[0]===V)||['',''])[1].split(' ')[0]):'Lainnya')+'</span></button>';}
   $('#tabs').innerHTML=VIEWS.map(v=>'<a href="#'+v[0]+'" class="'+(v[0]===V?'on':'')+'">'+v[1]+'</a>').join('');
   const ot=$('#tabs .on');if(ot&&ot.scrollIntoView&&window.innerWidth<860){const tb=$('#tabs');tb.scrollLeft=ot.offsetLeft-tb.clientWidth/2+ot.clientWidth/2}
@@ -686,10 +722,10 @@ R.ringkasan=()=>{
   let h=(false?'<div class="card" style="border-color:var(--acc)"><h3>Punya data lengkap dari versi lama?</h3><p class="small mut">Proyek di bawah dibuat otomatis dari aplikasi keuangan (tahapan standar). Data versi lama (link claude.ai) berisi tahapan, tanggal, catatan, dan tugas yang sudah disusun — tempel di sini untuk menggantikan.</p><div class="mact" style="margin-top:0"><button class="btn pri" onclick="WP.restore()">Tempel data dari versi lama</button><button class="btn ghost" onclick="WP.hideMig()">Tidak perlu</button></div></div>':'')+(!S.projects.length?'<div class="card" style="border-color:var(--acc)"><h3>Selamat datang di Pemantau Proyek</h3><p class="small mut">Pindahkan data dari versi lama (link claude.ai), atau tambahkan proyek dari aplikasi keuangan lewat kartu Keuangan di bawah.</p><button class="btn pri" onclick="WP.restore()">Tempel data dari versi lama</button></div>':'')+'<div class="hd"><h2>Ringkasan</h2><span class="sp"></span><span class="mut small">'+new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'</span></div>';
   {const avg=act.length?Math.round(act.reduce((s,p)=>s+(projProgress(p)||0),0)/act.length):0;
   h+='<h1 class="wd-greet" style="margin:0 0 12px">'+(window.WDMotion?WDMotion.greet():'Halo')+', <span>Widemp</span></h1>'+
-    '<div class="wd-hero"><div class="h-top"><span class="h-tag">Proyek berjalan</span><span>'+late.length+' tugas terlambat</span></div><div class="h-big wd-count">'+act.length+' proyek</div><div class="h-bar"><i data-w="'+avg+'%"></i></div><div class="h-sub"><span>Rata-rata progres '+avg+'%</span><span>Siap ditagih '+rpS(readyAmt)+'</span></div><div class="h-act"><button class="h-btn" onclick="location.hash=\'laporan\'">⎙ Laporan</button><button class="h-btn" onclick="location.hash=\'gaji\'" style="background:rgba(255,255,255,.2);color:#fff">₲ Gaji tukang</button></div></div>';}
+    '<div class="wd-hero drill" data-drill="act"><div class="h-top"><span class="h-tag">Proyek berjalan</span><span>'+late.length+' tugas terlambat</span></div><div class="h-big wd-count">'+act.length+' proyek</div><div class="h-bar"><i data-w="'+avg+'%"></i></div><div class="h-sub"><span>Rata-rata progres '+avg+'%</span><span>Siap ditagih '+rpS(readyAmt)+'</span></div><div class="h-act"><button class="h-btn" onclick="location.hash=\'laporan\'">⎙ Laporan</button><button class="h-btn" onclick="location.hash=\'gaji\'" style="background:rgba(255,255,255,.2);color:#fff">₲ Gaji tukang</button></div></div>';}
   h+='<div class="grid g4" style="margin-bottom:14px">'+
-    kpi('Proyek berjalan',act.length,'')+kpi('Tugas terlambat',late.length,late.length?'bad':'')+
-    kpi('Siap ditagih',rpS(readyAmt),ready.length?'ok':'',ready.length+' termin')+kpi('Temuan pengawasan terbuka',S.defects.filter(x=>x.status!=='Ditutup').length,S.defects.some(x=>x.status!=='Ditutup'&&x.due&&x.due<t)?'bad':'',pendCO.length+' change order menunggu')+'</div>';
+    kpi('Proyek berjalan',act.length,'','','act')+kpi('Tugas terlambat',late.length,late.length?'bad':'','','late')+
+    kpi('Siap ditagih',rpS(readyAmt),ready.length?'ok':'',ready.length+' termin','ready')+kpi('Temuan pengawasan terbuka',S.defects.filter(x=>x.status!=='Ditutup').length,S.defects.some(x=>x.status!=='Ditutup'&&x.due&&x.due<t)?'bad':'',pendCO.length+' change order menunggu','def')+'</div>';
   h+=finCard();
   h+='<div class="grid g2"><div>';
   h+='<div class="card"><h3 style="margin-bottom:10px">Proyek</h3>'+(S.projects.length?S.projects.filter(p=>p.status!=='Selesai').sort((a,b)=>(a.status==='Ditunda')-(b.status==='Ditunda')).map(p=>{const pr=progOf(p),cf=curPhase(p);
@@ -710,7 +746,7 @@ R.ringkasan=()=>{
   return h;
 };
 AFTER.ringkasan=()=>{finCardBind();$$('.pcard').forEach(c=>c.onclick=()=>{PID=c.dataset.p;lsSet('widemp_pid',PID);go('jadwal')})};
-function kpi(l,v,c,sub){return '<div class="kpi"><span>'+esc(l)+'</span><b class="'+(String(v).length>14?'txt':'')+'" style="color:'+(c==='bad'?'var(--bad)':c==='ok'?'var(--ok)':c==='warn'?'var(--warn)':'inherit')+'">'+esc(v)+'</b>'+(sub?'<span>'+esc(sub)+'</span>':'')+'</div>'}
+function kpi(l,v,c,sub,dk){return '<div class="kpi'+(dk?' drill':'')+'"'+(dk?' data-drill="'+dk+'"':'')+'><span>'+esc(l)+'</span><b class="'+(String(v).length>14?'txt':'')+'" style="color:'+(c==='bad'?'var(--bad)':c==='ok'?'var(--ok)':c==='warn'?'var(--warn)':'inherit')+'">'+esc(v)+'</b>'+(sub?'<span>'+esc(sub)+'</span>':'')+'</div>'}
 function stTag(s){return '<span class="tag '+(s==='Berjalan'?'blue':s==='Selesai'?'ok':'warn')+'">'+esc(s)+'</span>'}
 function weekRange(){const d=new Date();const day=(d.getDay()+6)%7;const m=iso(new Date(d.getFullYear(),d.getMonth(),d.getDate()-day));return [m,addD(m,6)]}
 

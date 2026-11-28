@@ -301,6 +301,45 @@
     return d.build(s.number || 'Slip gaji');
   }
 
+  /* ---------------- Rincian kartu Ringkasan ---------------- */
+  function finDrill(k) {
+    const accounts = of('account'), txs = of('tx'), terms = of('term'), { cur } = C.periodRange(ui.period);
+    const U = C.usahaTxs(accounts, txs).sort((a, b) => b.date.localeCompare(a.date) || (b.updatedAt || 0) - (a.updatedAt || 0));
+    const sumOf = (p) => C.projectSummary(p, terms.filter((t) => t.projectId === p.id), txs);
+    const projs = of('project').filter((p) => p.status !== 'batal');
+    let title = '', sub = '', body = '';
+    const pRow = (p, right, s) => `<div class="row click" data-act="open-project" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${s}</div></div><div class="amt">${right}</div></div>`;
+    const byCat = (l) => { const m = {}; l.forEach((t) => { m[t.category || 'Lainnya'] = (m[t.category || 'Lainnya'] || 0) + t.amount; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+    if (k === 'in' || k === 'out') {
+      const l = U.filter((t) => t.kind === k && t.date >= cur.start && t.date <= cur.end), tot = l.reduce((s, t) => s + t.amount, 0);
+      title = k === 'in' ? 'Total pendapatan' : 'Pengeluaran'; sub = `${cur.label} · ${l.length} transaksi · ${rp(tot)}`;
+      body = `<div class="dsec">Per kategori</div>${byCat(l).map(([c, v]) => `<div class="row"><div class="grow"><div class="t">${esc(c)}</div><div class="bar"><i style="width:${tot ? Math.round(v / tot * 100) : 0}%"></i></div></div><div class="amt">${rp(v)}</div></div>`).join('')}
+        <div class="dsec">Transaksi</div>${l.map(txRow).join('') || '<div class="empty">Tidak ada transaksi.</div>'}`;
+    } else if (k === 'saldo') {
+      const op = accounts.filter((a) => (a.scope || 'usaha') === 'usaha').reduce((s, a) => s + (Number(a.opening) || 0), 0);
+      const ti = U.filter((t) => t.kind === 'in').reduce((s, t) => s + t.amount, 0), to = U.filter((t) => t.kind === 'out').reduce((s, t) => s + t.amount, 0);
+      title = 'Saldo kas'; sub = 'Dari awal pencatatan sampai hari ini';
+      body = `${[['Saldo awal akun', rp(op)], ['Total pemasukan', '+' + rp(ti)], ['Total pengeluaran', '−' + rp(to)], ['<b>Saldo sekarang</b>', '<b>' + rp(op + ti - to) + '</b>']].map(([a, b]) => `<div class="row"><div class="grow"><div class="t">${a}</div></div><div class="amt">${b}</div></div>`).join('')}
+        <div class="dsec">Per akun</div>${accounts.filter((a) => (a.scope || 'usaha') === 'usaha').map((a) => `<div class="row"><div class="grow"><div class="t">${esc(a.name)}</div></div><div class="amt">${rp(C.balanceAt([a], txs, '9999-12-31'))}</div></div>`).join('')}
+        <div class="dsec">Pengeluaran per kategori (semua)</div>${byCat(U.filter((t) => t.kind === 'out')).map(([c, v]) => `<div class="row"><div class="grow"><div class="t">${esc(c)}</div></div><div class="amt">${rp(v)}</div></div>`).join('')}
+        <div class="dsec">20 transaksi terakhir</div>${U.slice(0, 20).map(txRow).join('')}`;
+    } else if (k === 'active') {
+      const l = projs.filter((p) => p.status === 'aktif'); title = 'Proyek aktif'; sub = l.length + ' proyek · ketuk untuk membuka';
+      body = l.map((p) => { const s = sumOf(p), pc = s.contract ? Math.round(s.received / s.contract * 100) : 0; return pRow(p, rp(s.received), `${esc(p.client || '-')} · progres ${p.progress || 0}% · terbayar ${pc}% dari ${rp(s.contract)}<div class="bar"><i style="width:${Math.min(100, p.progress || 0)}%"></i></div>`); }).join('') || '<div class="empty">Tidak ada proyek aktif.</div>';
+    } else if (k === 'contract' || k === 'received') {
+      const l = projs.map((p) => [p, sumOf(p)]).sort((a, b) => (k === 'contract' ? b[1].contract - a[1].contract : b[1].received - a[1].received));
+      const tot = l.reduce((s, [, x]) => s + (k === 'contract' ? x.contract : x.received), 0);
+      title = k === 'contract' ? 'Total nilai kontrak' : 'Sudah terbayar'; sub = `${l.length} proyek · ${rp(tot)}`;
+      body = l.map(([p, s]) => pRow(p, rp(k === 'contract' ? s.contract : s.received), k === 'contract' ? `${esc(p.client || '-')} · ${esc(p.status)}` : `${s.contract ? Math.round(s.received / s.contract * 100) : 0}% dari ${rp(s.contract)}`)).join('');
+    } else if (k === 'remaining') {
+      title = 'Sisa tagihan'; let rows = '', tb = 0, tu = 0;
+      projs.forEach((p) => sumOf(p).sched.forEach((t) => { if (t.remaining <= 0) return; t.billed ? tb += t.remaining : tu += t.remaining;
+        rows += `<div class="row click" data-act="open-project" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)} · ${esc(t.label)}</div><div class="s">${t.billed ? '<span class="badge bill">Sudah ditagih</span>' : '<span class="badge">Belum ditagih</span>'}${t.dueDate ? ' · jatuh tempo ' + fmtDate(t.dueDate) : ''}</div></div><div class="amt">${rp(t.remaining)}</div></div>`; }));
+      sub = `Sudah ditagih ${rp(tb)} · belum ditagih ${rp(tu)}`; body = rows || '<div class="empty">Semua sudah lunas.</div>';
+    }
+    openSheet(`<div class="sbody"><div style="display:flex;align-items:center;gap:8px">${head(title)}<span style="flex:1"></span><button class="btn sm" type="button" data-act="close">Tutup</button></div><div class="s muted" style="margin:-2px 0 8px">${sub}</div>${body}</div>`);
+  }
+
   /* ----- Ringkasan ----- */
   const ICON = {
     up: '<svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 7-7M15 8h5v5"/></svg>',
@@ -315,8 +354,8 @@
     const up = p >= 0, good = up === goodWhenUp;
     return `<span class="${good ? 'up' : 'dn'}">${up ? '▲' : '▼'} ${up ? '+' : '−'}${Math.abs(p).toFixed(1).replace('.', ',')}%</span> dari periode sebelumnya`;
   }
-  function kpi(icon, label, value, sub) {
-    return `<div class="stat kpi"><div class="ic">${icon}</div><div class="b"><div class="l">${label}</div><div class="v">${value}</div><div class="d">${sub}</div></div></div>`;
+  function kpi(icon, label, value, sub, dk) {
+    return `<div class="stat kpi${dk ? ' drill' : ''}"${dk ? ` data-act="drill" data-k="${dk}"` : ''}><div class="ic">${icon}</div><div class="b"><div class="l">${label}</div><div class="v">${value}</div><div class="d">${sub}</div></div></div>`;
   }
   function liabPanel(compact) {
     const ls = of('liability'), mk = C.monthKey(C.isoDate()), txs = of('tx');
@@ -358,9 +397,9 @@
   function billingCards() {
     const b = billingTotals(), pct = b.contract ? Math.round((b.received / b.contract) * 100) : 0;
     return `<div class="grid g3" style="margin-top:16px">
-      ${kpi(ICON.layers, 'Total Nilai Kontrak', rp(b.contract), 'Semua proyek, kecuali yang batal')}
-      ${kpi(ICON.up, 'Sudah Terbayar', rp(b.received), `<span class="up">${pct}%</span> dari nilai kontrak<div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>`)}
-      ${kpi(ICON.wallet, 'Sisa Tagihan', rp(b.remaining), b.billed ? `${rp(b.billed)} sudah ditagih, menunggu bayar` : 'Belum ada yang sedang ditagih')}
+      ${kpi(ICON.layers, 'Total Nilai Kontrak', rp(b.contract), 'Semua proyek, kecuali yang batal', 'contract')}
+      ${kpi(ICON.up, 'Sudah Terbayar', rp(b.received), `<span class="up">${pct}%</span> dari nilai kontrak<div class="bar"><i style="width:${Math.min(100, pct)}%"></i></div>`, 'received')}
+      ${kpi(ICON.wallet, 'Sisa Tagihan', rp(b.remaining), b.billed ? `${rp(b.billed)} sudah ditagih, menunggu bayar` : 'Belum ada yang sedang ditagih', 'remaining')}
     </div>`;
   }
   function vDash() {
@@ -383,12 +422,12 @@
     <button class="fab" data-act="daily" aria-label="Catat transaksi harian">+</button>
     <div class="ptitle"><div class="tx"><h1 class="wd-greet">${(window.WDMotion ? WDMotion.greet() : 'Halo')}, <span>${esc((cfg().businessName || 'Widemp').split(' ')[0])}</span></h1><p>Pantau arus kas dan performa proyek dalam satu ruang.</p><div class="rule"></div></div>
       <label class="period" title="Periode">${ICON.cal}<select id="fPeriod" aria-label="Periode">${opts.map(([k, l]) => `<option value="${k}" ${ui.period === k ? 'selected' : ''}>${k === ui.period ? cur.label : l}</option>`).join('')}</select></label></div>
-    ${(() => { const b = billingTotals(), pc = b.contract ? Math.round(b.received / b.contract * 100) : 0; return `<div class="wd-hero"><div class="h-top"><span class="h-tag">Saldo kas usaha</span><span>${active.length} proyek aktif</span></div><div class="h-big wd-count">${rp(saldo)}</div><div class="h-bar"><i data-w="${Math.min(100, pc)}%"></i></div><div class="h-sub"><span>Kontrak terbayar ${pc}% · ${rp(b.received)} dari ${rp(b.contract)}</span><span>Sisa tagihan ${rp(b.remaining)}</span></div><div class="h-act"><button class="h-btn" data-act="daily">+ Catat transaksi</button><button class="h-btn" data-act="go-pajak" style="background:rgba(255,255,255,.2);color:#fff">Pajak bulan ini</button></div></div>`; })()}
+    ${(() => { const b = billingTotals(), pc = b.contract ? Math.round(b.received / b.contract * 100) : 0; return `<div class="wd-hero drill" data-act="drill" data-k="saldo"><div class="h-top"><span class="h-tag">Saldo kas usaha</span><span>${active.length} proyek aktif</span></div><div class="h-big wd-count">${rp(saldo)}</div><div class="h-bar"><i data-w="${Math.min(100, pc)}%"></i></div><div class="h-sub"><span>Kontrak terbayar ${pc}% · ${rp(b.received)} dari ${rp(b.contract)}</span><span>Sisa tagihan ${rp(b.remaining)}</span></div><div class="h-act"><button class="h-btn" data-act="daily">+ Catat transaksi</button><button class="h-btn" data-act="go-pajak" style="background:rgba(255,255,255,.2);color:#fff">Pajak bulan ini</button></div></div>`; })()}
     <div class="grid g4">
-      ${kpi(ICON.up, 'Total Pendapatan', rp(T.in), delta(T.in, P.in, true))}
-      ${kpi(ICON.cart, 'Pengeluaran', rp(T.out), delta(T.out, P.out, false))}
-      ${kpi(ICON.wallet, 'Saldo Kas', rp(saldo), delta(saldo, saldoPrev, true))}
-      ${kpi(ICON.layers, 'Proyek Aktif', String(active.length), newP ? `+${newP} proyek baru` : 'Tidak ada proyek baru')}
+      ${kpi(ICON.up, 'Total Pendapatan', rp(T.in), delta(T.in, P.in, true), 'in')}
+      ${kpi(ICON.cart, 'Pengeluaran', rp(T.out), delta(T.out, P.out, false), 'out')}
+      ${kpi(ICON.wallet, 'Saldo Kas', rp(saldo), delta(saldo, saldoPrev, true), 'saldo')}
+      ${kpi(ICON.layers, 'Proyek Aktif', String(active.length), newP ? `+${newP} proyek baru` : 'Tidak ada proyek baru', 'active')}
     </div>
     ${billingCards()}
     <div class="cols wide" style="margin-top:16px">
@@ -916,6 +955,7 @@
       case 'sal-edit': salForm(byId(id)); break;
       case 'sal-del': { const x = byId(id); if (confirm('Hapus penggajian ini? Pengeluaran di Kas ikut terhapus.')) { if (x.txId && byId(x.txId)) await del(x.txId); await del(id); closeSheet(); render(); toast('Dihapus'); } break; }
       case 'sal-pdf': salPdf(byId(id), el); break;
+      case 'drill': finDrill(el.dataset.k); break;
       case 'go-pajak': ui.tab = 'pajak'; ui.pid = null; render(); window.scrollTo(0, 0); break;
       case 'tax-set': taxSetForm(); break;
       case 'tax-proj': taxProjForm(byId(id)); break;
@@ -1344,14 +1384,14 @@
       const plan = xlPlan(await XLSXRead(file)); ui._xl = plan;
       const cur = (p, k) => p ? of('tx').filter((t) => t.projectId === p.id && t.kind === k) : [];
       const sum = (l) => l.reduce((s, x) => s + x.amount, 0);
-      openSheet(`${head('Impor dari Excel')}<div class="s muted">File: ${esc(file.name)} · ${plan.items.length} proyek terbaca. Data proyek di aplikasi akan disamakan persis dengan Excel (termin, pemasukan, pengeluaran, kontrak, progres).</div>
+      openSheet(`<div class="sbody">${head('Impor dari Excel')}<div class="s muted">File: ${esc(file.name)} · ${plan.items.length} proyek terbaca. Data proyek di aplikasi akan disamakan persis dengan Excel (termin, pemasukan, pengeluaran, kontrak, progres).</div>
         <div style="max-height:46vh;overflow:auto;margin:10px 0">${plan.items.map((it) => {
           const ci = cur(it.p, 'in'), co = cur(it.p, 'out'), gone = (old, rows) => { const used = new Set(); rows.forEach((x) => { const o = old.find((t) => !used.has(t.id) && t.date === x.date && t.amount === x.amount); if (o) used.add(o.id); }); return old.length - used.size; }, dl = gone(ci, it.ins) + gone(co, it.outs); it._del = dl; const ch = (a, b) => a !== b ? ' <b style="color:var(--wd-or2,#f0461b)">(sekarang ' + rp(a) + ')</b>' : '';
           return `<div class="row"><div class="grow"><div class="t">${esc(it.pname)} ${it.p ? '' : '<span class="badge bill">baru</span>'}</div>
             <div class="s">Kontrak ${rp(it.contract)}${it.p ? ch(it.p.contract || 0, it.contract) : ''} · ${it.terms.length} termin<br>Masuk ${it.ins.length}× ${rp(sum(it.ins))}${ch(sum(ci), sum(it.ins))}<br>Keluar ${it.outs.length}× ${rp(sum(it.outs))}${ch(sum(co), sum(it.outs))}${dl ? `<br><b style="color:#e5484d">${dl} transaksi di aplikasi akan dihapus (tidak ada di Excel)</b>` : ''}</div></div></div>`; }).join('')}</div>
         ${(() => { const t = plan.items.reduce((s, it) => s + (it._del || 0), 0); return t ? `<div class="note" style="border-color:#e5484d"><b>${t} transaksi akan dihapus</b> karena tidak ada di Excel. Pastikan ini file Excel <b>terbaru</b>, bukan file lama.</div>` : ''; })()}
         ${plan.warns.length ? `<div class="note" style="max-height:24vh;overflow:auto"><b>Perlu dicek (${plan.warns.length}):</b><br>${plan.warns.map(esc).join('<br>')}</div>` : ''}
-        <div class="actions" style="margin-top:14px"><button class="btn primary" type="button" data-act="xl-apply">Terapkan ke aplikasi</button><button class="btn" type="button" data-act="close">Batal</button></div>`);
+        <div class="actions" style="margin-top:14px"><button class="btn primary" type="button" data-act="xl-apply">Terapkan ke aplikasi</button><button class="btn" type="button" data-act="close">Batal</button></div></div>`);
     } catch (e) { toast('Gagal membaca Excel: ' + e.message); }
   }
   async function xlApply() {
