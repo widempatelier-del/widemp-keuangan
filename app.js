@@ -485,6 +485,8 @@
     <h2>Cadangan</h2><div class="card">
       <div class="s muted">Salinan data dalam satu file JSON. Impor menggabungkan, tidak menghapus data yang ada.</div>
       <div class="actions"><button class="btn" data-act="export">Ekspor JSON</button><label class="btn" style="margin:0;color:var(--ink)">Impor JSON<input type="file" id="fImport" accept="application/json,.json" hidden></label></div></div>
+    <h2>Excel per proyek</h2><div class="card"><div class="s muted">Unggah file "Data_Per_Proyek_Widemp.xlsx" yang sudah Anda isi. Anda akan melihat ringkasan perubahannya dulu sebelum diterapkan.</div>
+      <div class="actions"><label class="btn primary" style="margin:0">Impor Excel per proyek<input type="file" id="fXl" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label></div></div>
     <div class="muted" style="font-size:12px;margin-top:6px">Widemp Atelier · tahap 3 (keuangan, invoice &amp; kwitansi, penawaran, RAB, database)</div>`;
   }
 
@@ -735,6 +737,7 @@
     const a = el.dataset.act, id = el.dataset.id;
     switch (a) {
       case 'close': closeSheet(); break;
+      case 'xl-apply': xlApply(); break;
       case 'go-dash': e.preventDefault(); ui.tab = 'dash'; ui.pid = null; ui.qid = null; ui.rid = null; render(); window.scrollTo(0, 0); break;
       case 'go-cash': ui.tab = 'cash'; ui.pid = null; ui.month = ''; ui.kind = ''; render(); window.scrollTo(0, 0); break;
       case 'open-project': closeSheet(); ui.tab = 'proj'; ui.qid = null; ui.rid = null; ui.pid = id; history.pushState({ pid: id }, ''); render(); window.scrollTo(0, 0); break;
@@ -828,6 +831,7 @@
     else if (t.matches && t.matches('.dayrow [name=d_cat]')) t.dataset.touched = '1';
     else if (t.matches && t.matches('.dayrow [name=d_kind], .dayrow [name=d_proj]')) refreshDayRow(t.closest('.dayrow'));
     else if (t.id === 'fImport') importJson(t.files[0]);
+    else if (t.id === 'fXl') { xlImport(t.files[0]); t.value = ''; }
     else if (t.id === 'tPreset' && t.value !== '') {
       const pcts = C.PRESETS[Number(t.value)].percents, labels = C.makeTermLabels(pcts), box = $('#tRows');
       const used = [...box.querySelectorAll('.termrow')].some((r) => r.dataset.tid && C.paidFor(of('tx'), r.dataset.tid) > 0);
@@ -1162,6 +1166,104 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `widemp-backup-${C.isoDate()}.json`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
+  /* ---------------- Impor Excel "Data per proyek" ---------------- */
+  const XL_SKIP = ['Petunjuk', 'Ringkasan', 'Daftar'];
+  const MON = { jan: 1, feb: 2, mar: 3, apr: 4, mei: 5, may: 5, jun: 6, jul: 7, agu: 8, agt: 8, aug: 8, sep: 9, okt: 10, oct: 10, nov: 11, des: 12, dec: 12 };
+  function xlDate(v, warn, where) {
+    if (v === undefined || v === null || v === '') return '';
+    if (typeof v === 'number') { const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 864e5); return d.toISOString().slice(0, 10); }
+    let s = String(v).trim().replace(/\.$/, ''), y, m, d, mm;
+    if ((mm = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) [y, m, d] = [+mm[1], +mm[2], +mm[3]];
+    else if ((mm = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/))) [d, m, y] = [+mm[1], +mm[2], +mm[3] < 100 ? 2000 + +mm[3] : +mm[3]];
+    else if ((mm = s.match(/^(\d{1,2})\s+([A-Za-z]+)\.?\s*(\d{4})?$/))) { d = +mm[1]; m = MON[mm[2].slice(0, 3).toLowerCase()]; y = mm[3] ? +mm[3] : 0; }
+    if (!m || !d) { warn.push(where + ': tanggal "' + s + '" tidak terbaca, dikosongkan'); return ''; }
+    if (!y) { y = +C.isoDate().slice(0, 4); warn.push(where + ': "' + s + '" tanpa tahun, dianggap ' + y); }
+    const last = new Date(y, m, 0).getDate();
+    if (d > last) { warn.push(where + ': "' + s + '" tidak ada, dipakai ' + last + '/' + m + '/' + y); d = last; }
+    if (y < 2024 || y > 2035) warn.push(where + ': tahun ' + y + ' — mungkin salah ketik');
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+  const xlNum = (v) => typeof v === 'number' ? v : v ? Number(String(v).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')) || 0 : 0;
+  const xlNorm = (s) => String(s || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '');
+  function xlPlan(book) {
+    const warns = [], items = [], projects = of('project'), accs = of('account');
+    const accBy = (n) => { const a = accs.find((x) => xlNorm(x.name) === xlNorm(n)); return a ? a.id : ((accs.find((x) => (x.scope || 'usaha') === 'usaha') || accs[0] || {}).id || ''); };
+    for (const name of book.order) {
+      if (XL_SKIP.includes(name)) continue;
+      const S = book.sheets[name], g = (c, r) => S[c + r];
+      const info = {};
+      for (let r = 4; r <= 20; r++) if (typeof g('B', r) === 'string') info[g('B', r).trim().toLowerCase()] = g('C', r);
+      const pname = String(info['nama proyek'] || '').trim();
+      if (!pname) { if (name !== 'Proyek Baru') warns.push(name + ': nama proyek kosong, sheet dilewati'); continue; }
+      const sec = {};
+      for (let r = 1; r <= 600; r++) { const a = g('A', r); if (typeof a === 'string') { const m = a.match(/^([1-4])\.\s/); if (m) sec[m[1]] = r; } }
+      if (!sec[1] || !sec[2] || !sec[3]) { warns.push(name + ': format tabel tidak dikenali, sheet dilewati'); continue; }
+      const rows = (key) => { const out = [], stop = Math.min(...['1', '2', '3', '4'].map((k) => sec[k]).filter((x) => x > sec[key]), 9999); for (let r = sec[key] + 2; r < stop; r++) { if (['B', 'C', 'D', 'E'].some((c) => /^total/i.test(String(g(c, r) || '')))) break; out.push(r); } return out; };
+      const W = (r, c) => name + ' ' + c + r;
+      const terms = rows('1').map((r) => ({ r, label: g('B', r), pct: xlNum(g('C', r)), fixed: xlNum(g('D', r)), due: xlDate(g('E', r), warns, W(r, 'E')) })).filter((t) => t.label || t.pct || t.fixed);
+      const ins = rows('2').map((r) => ({ r, date: xlDate(g('B', r), warns, W(r, 'B')), no: xlNum(g('C', r)), amount: xlNum(g('D', r)), category: g('E', r) || 'Pembayaran proyek', accountId: accBy(g('F', r)), note: String(g('G', r) || '') })).filter((x) => x.amount > 0);
+      const outs = rows('3').map((r) => ({ r, date: xlDate(g('B', r), warns, W(r, 'B')), category: g('C', r) || 'Lainnya', amount: xlNum(g('E', r)), accountId: accBy(g('F', r)), note: [g('D', r), g('G', r) ? 'Vendor: ' + g('G', r) : '', g('H', r)].filter(Boolean).join(' · ') })).filter((x) => x.amount > 0);
+      [...ins, ...outs].forEach((x) => { if (!x.date) { x.date = C.isoDate(); warns.push(W(x.r, 'B') + ': tanggal kosong, dipakai hari ini'); } });
+      const p = projects.find((x) => xlNorm(x.name) === xlNorm(pname)) || projects.find((x) => xlNorm(name) && xlNorm(x.name).startsWith(xlNorm(name)));
+      const contract = xlNum(info['nilai kontrak']);
+      const rec = ins.reduce((s, x) => s + x.amount, 0);
+      if (contract && rec > contract) warns.push(name + ': uang diterima (' + rp(rec) + ') lebih besar dari nilai kontrak (' + rp(contract) + ')');
+      ins.forEach((x) => { if (x.no && !terms[x.no - 1]) warns.push(W(x.r, 'C') + ': termin ke-' + x.no + ' tidak ada di tabel termin'); });
+      items.push({ name, p, pname, info, contract, terms, ins, outs });
+    }
+    return { items, warns };
+  }
+  async function xlImport(file) {
+    if (!file) return;
+    try {
+      if (!window.XLSXRead) throw new Error('pembaca Excel belum dimuat');
+      const plan = xlPlan(await XLSXRead(file)); ui._xl = plan;
+      const cur = (p, k) => p ? of('tx').filter((t) => t.projectId === p.id && t.kind === k) : [];
+      const sum = (l) => l.reduce((s, x) => s + x.amount, 0);
+      openSheet(`${head('Impor dari Excel')}<div class="s muted">File: ${esc(file.name)} · ${plan.items.length} proyek terbaca. Data proyek di aplikasi akan disamakan persis dengan Excel (termin, pemasukan, pengeluaran, kontrak, progres).</div>
+        <div style="max-height:46vh;overflow:auto;margin:10px 0">${plan.items.map((it) => {
+          const ci = cur(it.p, 'in'), co = cur(it.p, 'out'), ch = (a, b) => a !== b ? ' <b style="color:var(--wd-or2,#f0461b)">(sekarang ' + rp(a) + ')</b>' : '';
+          return `<div class="row"><div class="grow"><div class="t">${esc(it.pname)} ${it.p ? '' : '<span class="badge bill">baru</span>'}</div>
+            <div class="s">Kontrak ${rp(it.contract)}${it.p ? ch(it.p.contract || 0, it.contract) : ''} · ${it.terms.length} termin<br>Masuk ${it.ins.length}× ${rp(sum(it.ins))}${ch(sum(ci), sum(it.ins))}<br>Keluar ${it.outs.length}× ${rp(sum(it.outs))}${ch(sum(co), sum(it.outs))}</div></div></div>`; }).join('')}</div>
+        ${plan.warns.length ? `<div class="note" style="max-height:24vh;overflow:auto"><b>Perlu dicek (${plan.warns.length}):</b><br>${plan.warns.map(esc).join('<br>')}</div>` : ''}
+        <div class="actions" style="margin-top:14px"><button class="btn primary" type="button" data-act="xl-apply">Terapkan ke aplikasi</button><button class="btn" type="button" data-act="close">Batal</button></div>`);
+    } catch (e) { toast('Gagal membaca Excel: ' + e.message); }
+  }
+  async function xlApply() {
+    const plan = ui._xl; if (!plan) return;
+    const list = [], ST = { berjalan: 'aktif', ditunda: 'tunda', selesai: 'selesai', batal: 'batal' };
+    for (const it of plan.items) {
+      const p0 = it.p || { status: 'aktif', createdAt: Date.now() }, pid = p0.id || C.uid();
+      const jp = String(it.info['jenis pajak'] || '').toLowerCase();
+      let prog = xlNum(it.info['progres pekerjaan']); if (prog <= 1) prog = prog * 100;
+      list.push(['project', Object.assign({}, p0, { id: pid, name: it.pname, client: String(it.info['klien'] || p0.client || ''), address: String(it.info['lokasi'] || p0.address || ''),
+        service: String(it.info['jenis layanan'] || p0.service || ''), status: ST[String(it.info['status'] || '').toLowerCase()] || p0.status || 'aktif', contract: it.contract,
+        progress: Math.round(prog), taxCat: /konsultansi/.test(jp) ? 'kk' : /pekerjaan konstruksi/.test(jp) ? 'pk' : jp ? 'umkm' : (p0.taxCat || ''),
+        start: xlDate(it.info['tanggal mulai'], [], '') || p0.start || '', end: xlDate(it.info['target selesai'], [], '') || p0.end || '' })]);
+      const oldT = of('term').filter((t) => t.projectId === pid).sort((a, b) => (a.no || 0) - (b.no || 0)), tIds = [];
+      it.terms.forEach((t, i) => {
+        const o = oldT[i] || {}, id = o.id || C.uid(); tIds.push(id);
+        const pct = t.fixed ? (it.contract ? t.fixed / it.contract * 100 : 0) : (t.pct > 1 ? t.pct : t.pct * 100);
+        list.push(['term', Object.assign({}, o, { id, projectId: pid, no: i + 1, label: String(t.label || 'Termin ' + (i + 1)), percent: Math.round(pct * 10000) / 10000, fixed: t.fixed || 0, dueDate: t.due })]);
+      });
+      oldT.slice(it.terms.length).forEach((o) => list.push(['term', Object.assign({}, o, { deleted: true })]));
+      for (const [kind, rowsX] of [['in', it.ins], ['out', it.outs]]) {
+        const old = of('tx').filter((t) => t.projectId === pid && t.kind === kind), used = new Set();
+        rowsX.forEach((x) => {
+          const o = old.find((t) => !used.has(t.id) && t.date === x.date && t.amount === x.amount) || {};
+          if (o.id) used.add(o.id);
+          const tx = Object.assign({}, o, { id: o.id || C.uid(), kind, date: x.date, amount: x.amount, category: x.category, accountId: x.accountId, projectId: pid, note: x.note || (o.note || '') });
+          if (kind === 'in') tx.termId = x.no && tIds[x.no - 1] ? tIds[x.no - 1] : '';
+          else { tx.termId = o.termId || ''; tx.liabilityId = o.liabilityId || ''; }
+          list.push(['tx', tx]);
+        });
+        old.filter((t) => !used.has(t.id)).forEach((t) => list.push(['tx', Object.assign({}, t, { deleted: true })]));
+      }
+    }
+    await saveMany(list); ui._xl = null; closeSheet(); render();
+    toast(plan.items.length + ' proyek diperbarui dari Excel');
+  }
+
   async function importJson(file) {
     if (!file) return;
     try {
